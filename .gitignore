@@ -1,0 +1,14 @@
+# dependencies / build output
+node_modules/
+.next/
+out/
+__pycache__/
+*.pyc
+*.tsbuildinfo
+# local / secrets
+.env
+.env.*
+!.env.example
+.DS_Store
+.databricks/
+.venv/

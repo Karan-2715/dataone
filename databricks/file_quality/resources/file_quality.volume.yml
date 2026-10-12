@@ -1,0 +1,14 @@
+resources:
+  volumes:
+    uploads_volume:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.dq_schema.name}
+      name: ${var.volume}
+      volume_type: MANAGED
+      comment: Landing zone for files whose data quality DataOne checks (csv, tsv, json, jsonl, parquet, avro, orc).
+      grants:
+        # DataOne's Quick Upload saves the original file here
+        - principal: ${var.app_service_principal}
+          privileges:
+            - READ_VOLUME
+            - WRITE_VOLUME

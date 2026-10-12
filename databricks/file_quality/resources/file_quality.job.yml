@@ -1,0 +1,23 @@
+resources:
+  jobs:
+    file_quality_job:
+      name: dataone-file-quality-job
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+      # Runs automatically when a file lands in the volume (Quick Upload or a manual drop)
+      trigger:
+        pause_status: UNPAUSED
+        file_arrival:
+          url: /Volumes/${var.catalog}/${var.schema}/${var.volume}/
+          min_time_between_triggers_seconds: 60
+          wait_after_last_change_seconds: 61
+      tasks:
+        - task_key: profile_files
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.file_quality_pipeline.id}
+            full_refresh: false
+      permissions:
+        # DataOne's "Run file quality check" button starts runs as the app's service principal
+        - level: CAN_MANAGE_RUN
+          service_principal_name: ${var.app_service_principal}

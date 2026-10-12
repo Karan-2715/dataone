@@ -1,0 +1,16 @@
+resources:
+  pipelines:
+    file_quality_pipeline:
+      name: dataone-file-quality-pipeline
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.dq_schema.name}
+      serverless: true
+      continuous: false
+      development: false
+      root_path: ../src
+      libraries:
+        - file:
+            path: ../src/file_quality_pipeline.py
+      configuration:
+        dataone.fq.landing_path: /Volumes/${var.catalog}/${var.schema}/${var.volume}
+        dataone.fq.freshness_sla_hours: ${var.freshness_sla_hours}

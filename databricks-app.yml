@@ -1,0 +1,39 @@
+# Databricks App Configuration
+# Simplified format for new Databricks Apps UI
+
+app:
+  name: dataone
+  
+compute:
+  size: MEDIUM  # Medium: 2 vCPUs, 6 GB memory
+  
+resources:
+  - name: backend
+    serve:
+      command:
+        - "python"
+        - "-m" 
+        - "gunicorn"
+        - "app.main:app"
+        - "-k"
+        - "uvicorn.workers.UvicornWorker"
+        - "--bind"
+        - "0.0.0.0:8000"
+    image: docker.io/salonisidheshwar/dataone-backend:v1.0.1
+    
+  - name: frontend
+    serve:
+      command:
+        - "nginx"
+        - "-g"
+        - "daemon off;"
+    image: docker.io/salonisidheshwar/dataone-frontend:v1.0.0
+    port: 3000
+
+env:
+  - name: APP_DATABASE_URL
+    value: "postgresql://dataone:<DB_PASSWORD>@ep-mute-moon-d8ql2bc9.database.us-east-2.cloud.databricks.com/databricks_postgres?sslmode=require"
+  - name: REDIS_URL  
+    value: "redis://redis:6379/0"
+  - name: DATABRICKS_NATIVE_MODE
+    value: "true"

@@ -1,0 +1,34 @@
+fastapi==0.110.0
+uvicorn==0.27.1
+sqlalchemy==2.0.28
+psycopg2-binary==2.9.9
+pydantic>=2.11.3,<3
+pydantic-settings==2.2.1
+langchain==0.1.12
+langchain-community==0.0.28
+ollama
+requests==2.31.0
+python-dotenv==1.0.1
+pymysql==1.1.0
+cryptography==42.0.5
+oracledb==2.1.1
+celery[redis]==5.3.6
+redis==5.0.1
+gunicorn==23.0.0
+python-jose[cryptography]==3.3.0
+msal==1.31.0
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+cachetools==7.1.4
+sqlparse==0.5.5
+croniter==2.0.5
+aci-sdk==1.0.0b4
+keeper-secrets-manager-core==17.0.0
+# File upload formats (Parquet, Excel)
+pyarrow>=14.0.0
+openpyxl>=3.1.2
+# Databricks integration
+databricks-sql-connector>=3.0.0
+databricks-sdk>=0.12.0
+databricks-connect>=14.3.0
+python-multipart

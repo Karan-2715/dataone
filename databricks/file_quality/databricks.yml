@@ -1,0 +1,36 @@
+# DataOne file data-quality: a Lakeflow pipeline + job that profile files landing in a Unity Catalog volume
+# (Quick Upload from DataOne, or anything dropped there from the Databricks UI / CLI) and publish
+# completeness, uniqueness, validity and freshness for DataOne's Data Quality dashboard.
+#
+#   databricks bundle validate --profile <profile>
+#   databricks bundle deploy   --profile <profile>
+#   databricks bundle run file_quality_job --profile <profile>
+#
+# Independent of the existing `dataone-secure` bundle (dataone-orchestrator / dataone-quality-pipeline):
+# it owns only the schema, volume, pipeline and job declared here.
+bundle:
+  name: dataone-file-quality
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds the schema and uploads volume.
+    default: workspace
+  schema:
+    description: Schema for the uploads volume and the file_quality_results table.
+    default: dataone_dq
+  volume:
+    description: Managed volume that DataOne and users drop data files into.
+    default: uploads
+  freshness_sla_hours:
+    description: A file is 100% fresh within this many hours, decaying to 0 at 7x.
+    default: "24"
+  app_service_principal:
+    description: Application (client) id of the DataOne Databricks App's service principal.
+    default: 119ee6e5-5169-491c-a7be-07d7973fbaee
+
+targets:
+  default:
+    default: true

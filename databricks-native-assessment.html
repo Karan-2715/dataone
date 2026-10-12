@@ -1,0 +1,523 @@
+<title>DataOne on Databricks — Assessment</title>
+<style>
+  :root {
+    --ground:#F5F2EC; --surface:#FCFBF8; --surface-2:#F0ECE3;
+    --ink:#191C22; --ink-soft:#565B63; --ink-faint:#8C919A;
+    --line:#E2DDD3; --line-strong:#CFC9BC;
+    --accent:#C24429; --accent-ink:#9A331E; --accent-wash:rgba(194,68,41,.09);
+    --retire:#A8402A; --delegate:#9C7318; --adapt:#356795; --keep:#3F7A4C;
+    --retire-wash:rgba(168,64,42,.12); --delegate-wash:rgba(156,115,24,.14);
+    --adapt-wash:rgba(53,103,149,.12); --keep-wash:rgba(63,122,76,.12);
+    --shadow:0 1px 2px rgba(25,28,34,.04),0 8px 28px -12px rgba(25,28,34,.14);
+    --font-display:"Helvetica Neue","Arial Nova",system-ui,-apple-system,sans-serif;
+    --font-body:"Iowan Old Style","Palatino Linotype",Palatino,Charter,Georgia,serif;
+    --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --maxw:1080px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#0E1116; --surface:#161A21; --surface-2:#1D222B;
+      --ink:#ECE7DE; --ink-soft:#A9AEB6; --ink-faint:#70767F;
+      --line:#252B34; --line-strong:#333A45;
+      --accent:#E5693F; --accent-ink:#F0855E; --accent-wash:rgba(229,105,63,.12);
+      --retire:#E06A4E; --delegate:#D6A94A; --adapt:#6DA9D8; --keep:#6FB57E;
+      --retire-wash:rgba(224,106,78,.15); --delegate-wash:rgba(214,169,74,.16);
+      --adapt-wash:rgba(109,169,216,.15); --keep-wash:rgba(111,181,126,.15);
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 34px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#F5F2EC; --surface:#FCFBF8; --surface-2:#F0ECE3;
+    --ink:#191C22; --ink-soft:#565B63; --ink-faint:#8C919A;
+    --line:#E2DDD3; --line-strong:#CFC9BC;
+    --accent:#C24429; --accent-ink:#9A331E; --accent-wash:rgba(194,68,41,.09);
+    --retire:#A8402A; --delegate:#9C7318; --adapt:#356795; --keep:#3F7A4C;
+    --retire-wash:rgba(168,64,42,.12); --delegate-wash:rgba(156,115,24,.14);
+    --adapt-wash:rgba(53,103,149,.12); --keep-wash:rgba(63,122,76,.12);
+    --shadow:0 1px 2px rgba(25,28,34,.04),0 8px 28px -12px rgba(25,28,34,.14);
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1116; --surface:#161A21; --surface-2:#1D222B;
+    --ink:#ECE7DE; --ink-soft:#A9AEB6; --ink-faint:#70767F;
+    --line:#252B34; --line-strong:#333A45;
+    --accent:#E5693F; --accent-ink:#F0855E; --accent-wash:rgba(229,105,63,.12);
+    --retire:#E06A4E; --delegate:#D6A94A; --adapt:#6DA9D8; --keep:#6FB57E;
+    --retire-wash:rgba(224,106,78,.15); --delegate-wash:rgba(214,169,74,.16);
+    --adapt-wash:rgba(109,169,216,.15); --keep-wash:rgba(111,181,126,.15);
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 34px -14px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--ground);color:var(--ink);
+    font-family:var(--font-body);font-size:17px;line-height:1.62;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px;}
+  a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid var(--line-strong);}
+  a:hover{border-color:var(--accent);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px;}
+  code,.mono{font-family:var(--font-mono);font-size:.85em;}
+  code{background:var(--surface-2);padding:.08em .38em;border-radius:4px;color:var(--ink);}
+
+  h1,h2,h3,.eyebrow,.label,.chip,th,.nav a,.rung-tag,.disp-num{font-family:var(--font-display);}
+  h2,h3{text-wrap:balance;}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);}
+
+  /* ---- header ---- */
+  header{border-bottom:1px solid var(--line);padding:76px 0 40px;background:
+    radial-gradient(120% 140% at 88% -10%,var(--accent-wash),transparent 55%);}
+  h1{font-size:clamp(38px,6.2vw,68px);line-height:.98;font-weight:800;
+     letter-spacing:-.025em;margin:16px 0 0;}
+  h1 .thin{font-weight:300;color:var(--ink-soft);}
+  .thesis{font-size:clamp(19px,2.4vw,23px);line-height:1.5;color:var(--ink-soft);
+    max-width:44ch;margin:22px 0 0;}
+  .metarow{display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:30px;
+    font-family:var(--font-display);font-size:12.5px;letter-spacing:.04em;color:var(--ink-faint);}
+  .metarow b{color:var(--ink);font-weight:700;}
+
+  /* ---- sticky nav ---- */
+  .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--ground) 90%,transparent);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+  .nav-inner{display:flex;gap:4px;overflow-x:auto;padding:11px 0;scrollbar-width:none;}
+  .nav-inner::-webkit-scrollbar{display:none;}
+  .nav a{flex:0 0 auto;font-size:12px;font-weight:600;letter-spacing:.03em;color:var(--ink-soft);
+    padding:5px 11px;border-radius:6px;border-bottom:none;white-space:nowrap;}
+  .nav a:hover{background:var(--surface-2);color:var(--ink);}
+
+  section{padding:52px 0;border-bottom:1px solid var(--line);}
+  section:last-of-type{border-bottom:none;}
+  .kicker{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;}
+  .kicker .n{font-family:var(--font-display);font-weight:800;font-size:13px;color:var(--accent);
+    letter-spacing:.05em;}
+  h2{font-size:clamp(25px,3.4vw,34px);font-weight:800;letter-spacing:-.018em;margin:0 0 6px;line-height:1.08;}
+  .lead{font-size:18px;color:var(--ink-soft);max-width:66ch;margin:0 0 26px;}
+  p{max-width:68ch;}
+
+  /* ---- disposition bar ---- */
+  .disp{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;border-radius:12px;overflow:hidden;
+    box-shadow:var(--shadow);margin:8px 0 18px;}
+  .disp>div{padding:20px 18px;color:#fff;}
+  .disp .d-retire{background:var(--retire);} .disp .d-delegate{background:var(--delegate);}
+  .disp .d-adapt{background:var(--adapt);} .disp .d-keep{background:var(--keep);}
+  .disp-num{font-size:32px;font-weight:800;line-height:1;letter-spacing:-.02em;}
+  .disp-lbl{font-family:var(--font-display);font-weight:700;font-size:12px;letter-spacing:.09em;
+    text-transform:uppercase;margin-top:7px;opacity:.95;}
+  .disp-sub{font-family:var(--font-body);font-size:13.5px;line-height:1.4;margin-top:6px;opacity:.92;max-width:26ch;}
+  .disp-note{font-size:14px;color:var(--ink-faint);font-style:italic;}
+
+  /* ---- rungs (spectrum) ---- */
+  .rungs{display:grid;gap:14px;margin-top:8px;}
+  .rung{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);}
+  .rung-tag{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:9px;
+    background:var(--accent-wash);color:var(--accent);font-weight:800;font-size:17px;}
+  .rung h3{margin:0 0 3px;font-size:16.5px;font-weight:700;letter-spacing:-.01em;}
+  .rung p{margin:0;font-size:14.5px;color:var(--ink-soft);}
+  .rev{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    padding:5px 10px;border-radius:20px;white-space:nowrap;text-align:center;}
+  .rev.full{background:var(--keep-wash);color:var(--keep);}
+  .rev.mostly{background:var(--adapt-wash);color:var(--adapt);}
+  .rev.hard{background:var(--retire-wash);color:var(--retire);}
+
+  /* ---- coupling cards ---- */
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);}
+  .card .label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:6px;}
+  .card p{margin:0;font-size:14.5px;color:var(--ink-soft);}
+  .card .mono{font-size:12.5px;color:var(--ink-faint);}
+
+  /* ---- tables ---- */
+  .tscroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);background:var(--surface);}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:14px;}
+  .matrix{min-width:820px;}
+  th{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-soft);
+    text-align:left;padding:13px 15px;background:var(--surface-2);border-bottom:1px solid var(--line-strong);
+    position:sticky;top:0;}
+  td{padding:12px 15px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink);}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--accent-wash);}
+  td .mono{font-size:12px;color:var(--ink-soft);}
+  .tnum{font-variant-numeric:tabular-nums;}
+
+  .chip{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    padding:4px 9px;border-radius:6px;white-space:nowrap;}
+  .chip.retire{background:var(--retire-wash);color:var(--retire);box-shadow:inset 0 0 0 1px var(--retire);}
+  .chip.delegate{background:var(--delegate-wash);color:var(--delegate);box-shadow:inset 0 0 0 1px var(--delegate);}
+  .chip.adapt{background:var(--adapt-wash);color:var(--adapt);box-shadow:inset 0 0 0 1px var(--adapt);}
+  .chip.keep{background:var(--keep-wash);color:var(--keep);box-shadow:inset 0 0 0 1px var(--keep);}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin:0 0 16px;font-size:13px;color:var(--ink-soft);align-items:center;}
+  .legend span{display:inline-flex;align-items:center;gap:7px;}
+  .dot{width:11px;height:11px;border-radius:3px;flex:none;}
+
+  /* ---- effort bars ---- */
+  .efbars{display:grid;gap:9px;margin:6px 0 22px;}
+  .efrow{display:grid;grid-template-columns:minmax(120px,220px) 1fr auto;gap:14px;align-items:center;}
+  .efrow .nm{font-size:13.5px;color:var(--ink);font-family:var(--font-display);font-weight:600;}
+  .track{height:15px;background:var(--surface-2);border-radius:8px;overflow:hidden;position:relative;}
+  .fill{height:100%;border-radius:8px;}
+  .fill.a{background:linear-gradient(90deg,var(--keep),color-mix(in srgb,var(--keep) 60%,var(--adapt)));}
+  .fill.b{background:linear-gradient(90deg,var(--adapt),color-mix(in srgb,var(--adapt) 55%,var(--delegate)));}
+  .fill.c{background:linear-gradient(90deg,var(--delegate),var(--retire));}
+  .efrow .wk{font-family:var(--font-display);font-weight:700;font-size:12.5px;color:var(--ink-soft);
+    font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .phaselab{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);margin-top:4px;}
+  .phaselab b{font-family:var(--font-display);}
+
+  /* ---- two-col upside/risk ---- */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .panel{border-radius:12px;padding:22px 24px;box-shadow:var(--shadow);}
+  .panel.up{background:var(--keep-wash);border:1px solid color-mix(in srgb,var(--keep) 30%,transparent);}
+  .panel.risk{background:var(--retire-wash);border:1px solid color-mix(in srgb,var(--retire) 30%,transparent);}
+  .panel h3{margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-.01em;}
+  .panel.up h3{color:var(--keep);} .panel.risk h3{color:var(--retire);}
+  .panel .sub{font-size:13px;color:var(--ink-soft);margin:0 0 14px;font-style:italic;}
+  .panel ul{margin:0;padding-left:0;list-style:none;display:grid;gap:12px;}
+  .panel li{font-size:14.5px;line-height:1.5;padding-left:20px;position:relative;max-width:none;}
+  .panel li::before{content:"";position:absolute;left:0;top:.55em;width:8px;height:8px;border-radius:2px;}
+  .panel.up li::before{background:var(--keep);}
+  .panel.risk li::before{background:var(--retire);}
+  .panel li b{font-family:var(--font-display);font-weight:700;}
+  .pull{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:0 10px 10px 0;padding:16px 20px;box-shadow:var(--shadow);}
+  .pull b{font-family:var(--font-display);color:var(--accent-ink);}
+
+  /* ---- phasing recommendation ---- */
+  .phases{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:8px;}
+  .phase{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:var(--shadow);
+    border-top:3px solid var(--accent);}
+  .phase .pn{font-family:var(--font-display);font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--accent);text-transform:uppercase;}
+  .phase h3{margin:6px 0 8px;font-size:17px;font-weight:800;letter-spacing:-.01em;}
+  .phase p{font-size:14px;color:var(--ink-soft);margin:0 0 12px;}
+  .gate{font-family:var(--font-display);font-size:11.5px;font-weight:600;color:var(--ink);
+    background:var(--surface-2);border-radius:7px;padding:9px 12px;line-height:1.4;}
+  .gate span{color:var(--ink-faint);text-transform:uppercase;letter-spacing:.06em;font-size:10px;font-weight:700;display:block;margin-bottom:3px;}
+
+  /* ---- open questions ---- */
+  .oq{display:grid;gap:10px;}
+  .oq div{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;
+    background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 18px;}
+  .flag{font-family:var(--font-mono);font-weight:700;font-size:13px;padding:2px 8px;border-radius:6px;white-space:nowrap;}
+  .flag.q{background:var(--adapt-wash);color:var(--adapt);}
+  .flag.bang{background:var(--retire-wash);color:var(--retire);}
+  .oq p{margin:0;font-size:14.5px;}
+  .oq b{font-family:var(--font-display);}
+
+  footer{padding:40px 0 64px;color:var(--ink-faint);font-size:13.5px;font-style:italic;max-width:72ch;}
+
+  @media (max-width:760px){
+    body{font-size:16px;}
+    .disp{grid-template-columns:repeat(2,1fr);}
+    .grid2,.split,.phases{grid-template-columns:1fr;}
+    .rung{grid-template-columns:auto 1fr;}
+    .rung .rev{grid-column:2;justify-self:start;}
+    .efrow{grid-template-columns:1fr;gap:5px;}
+    .efrow .wk{justify-self:start;}
+  }
+  @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto;}}
+  html{scroll-behavior:smooth;}
+  :target{scroll-margin-top:64px;}
+</style>
+
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Strategic &amp; Technical Assessment</div>
+    <h1>DataOne <span class="thin">on</span> Databricks</h1>
+    <p class="thesis">Going native is less a code port than a product decision: stop doing the parts
+      Databricks does better, and double down on the parts it doesn't.</p>
+    <div class="metarow">
+      <div>Audience&nbsp;&nbsp;<b>Exec + Engineering</b></div>
+      <div>Status&nbsp;&nbsp;<b>Decision-support</b></div>
+      <div>Basis&nbsp;&nbsp;<b>Current codebase</b></div>
+      <div>Date&nbsp;&nbsp;<b>27 Jul 2026</b></div>
+    </div>
+  </div>
+</header>
+
+<nav class="nav" aria-label="Sections">
+  <div class="wrap nav-inner">
+    <a href="#summary">Summary</a>
+    <a href="#spectrum">What "native" means</a>
+    <a href="#baseline">Baseline</a>
+    <a href="#matrix">Conflict matrix</a>
+    <a href="#design">Design changes</a>
+    <a href="#effort">Effort</a>
+    <a href="#partnership">Partnership</a>
+    <a href="#recommendation">Recommendation</a>
+    <a href="#questions">Open questions</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <section id="summary">
+    <div class="kicker"><span class="n">01</span><div class="eyebrow">Executive summary</div></div>
+    <h2>Feasible — and bigger than a port</h2>
+    <p class="lead">DataOne is an application-tier "Agentic DBA": it connects to external OLTP databases and
+      runs all query and data-movement work <em>inside its own Python process</em>. It has no compute engine,
+      no lakehouse storage, and its own catalog and governance layer. Databricks provides exactly those three
+      as first-class primitives. So the real question isn't "will it run" — it's "what do we stop owning."</p>
+    <div class="disp" role="img" aria-label="Disposition of DataOne capabilities against Databricks: Retire 15 percent, Delegate 45 percent, Adapt 25 percent, Keep 15 percent">
+      <div class="d-retire"><div class="disp-num">~15%</div><div class="disp-lbl">Retire</div><div class="disp-sub">Databricks does it better — delete ours</div></div>
+      <div class="d-delegate"><div class="disp-num">~45%</div><div class="disp-lbl">Delegate</div><div class="disp-sub">Stop owning it; call Databricks</div></div>
+      <div class="d-adapt"><div class="disp-num">~25%</div><div class="disp-lbl">Adapt</div><div class="disp-sub">Keep the concept; rewrite to push down</div></div>
+      <div class="d-keep"><div class="disp-num">~15%</div><div class="disp-lbl">Keep</div><div class="disp-sub">Our real differentiator — invest here</div></div>
+    </div>
+    <p class="disp-note">Rough shares of the capability surface — directional, not audited. The through-line:
+      delegate the <em>infrastructure</em>, keep the <em>workflow intelligence</em>.</p>
+    <p>The recommended path is <b>phased, not big-bang</b>: integrate <em>with</em> Databricks first,
+      then run as a Databricks App governed by Unity Catalog, then push compute fully native only where it
+      earns its keep. Each phase ships independently and is reversible.</p>
+  </section>
+
+  <section id="spectrum">
+    <div class="kicker"><span class="n">02</span><div class="eyebrow">Definitions</div></div>
+    <h2>What "Databricks-native" can actually mean</h2>
+    <p class="lead">"Native" is a spectrum, not a target. Each rung is a valid product, and they compound.
+      The reversibility tag is the key planning input.</p>
+    <div class="rungs">
+      <div class="rung">
+        <div class="rung-tag">A</div>
+        <div><h3>Databricks connector</h3><p>DataOne stays standalone; adds a Databricks SQL Warehouse + Unity
+          Catalog source/target alongside Postgres, MySQL, Oracle. New connector type only.</p></div>
+        <div class="rev full">Fully reversible</div>
+      </div>
+      <div class="rung">
+        <div class="rung-tag">B</div>
+        <div><h3>Databricks App (Lakehouse App)</h3><p>DataOne runs <em>inside</em> the customer's workspace;
+          identity, secrets and network come from the workspace, governed by Unity Catalog. Auth + hosting re-platform.</p></div>
+        <div class="rev mostly">Mostly reversible</div>
+      </div>
+      <div class="rung">
+        <div class="rung-tag">C</div>
+        <div><h3>Compute &amp; storage native</h3><p>Query + ETL pushed down to SQL Warehouses / Spark / DLT;
+          landing zone is Delta in Unity Catalog. Rewrite of the execution and pipeline engine.</p></div>
+        <div class="rev hard">Hard to reverse</div>
+      </div>
+      <div class="rung">
+        <div class="rung-tag">D</div>
+        <div><h3>Marketplace / "Built on Databricks"</h3><p>Validated listing + co-sell motion; layers on top of
+          A/B/C. Packaging and validation, not code.</p></div>
+        <div class="rev full">n/a</div>
+      </div>
+    </div>
+    <p style="margin-top:20px"><b>Recommendation:</b> A&nbsp;→&nbsp;B&nbsp;→&nbsp;(selective)&nbsp;C, with D once B is stable.
+      Rung A delivers most of the customer value for the least risk; C is only worth it where in-process Python is a real bottleneck.</p>
+  </section>
+
+  <section id="baseline">
+    <div class="kicker"><span class="n">03</span><div class="eyebrow">Ground truth</div></div>
+    <h2>The baseline we're re-platforming</h2>
+    <p class="lead">Established from the code, not the marketing. Today's Databricks and Unity-Catalog
+      mentions in the repo are aspirational copy — no code touches them. These are the couplings that collide.</p>
+    <div class="grid2">
+      <div class="card"><span class="label">No compute of its own</span>
+        <p>Query execution runs SQL through a native DB-API driver and does <code>fetchall()</code> in a thread,
+          capped at 5,000 rows. No server-side cursor or streaming.</p>
+        <p class="mono">query_execution_service.py</p></div>
+      <div class="card"><span class="label">ETL is in-process Python</span>
+        <p>Extracts in 1,000-row <code>LIMIT/OFFSET</code> batches, transforms row-by-row in Python,
+          <code>executemany</code>-loads. Real movement only for sqlite / postgres / mysql.</p>
+        <p class="mono">pipeline_executor.py</p></div>
+      <div class="card"><span class="label">No lakehouse concept</span>
+        <p>ETL lands in another OLTP DB. No Spark, Dask, Ray, Arrow, pandas or PySpark anywhere in the backend.</p>
+        <p class="mono">— absent by design —</p></div>
+      <div class="card"><span class="label">App-owned catalog &amp; governance</span>
+        <p>DataOne builds its own catalog, column profiles, classifications, lineage and semantic layer in Postgres.</p>
+        <p class="mono">schema_catalog_service.py · semantic_service.py</p></div>
+      <div class="card"><span class="label">Orchestration = Celery + Redis</span>
+        <p>Celery workers, a Redis broker, Beat, and an in-process cron scheduler drive all async and scheduled work.</p>
+        <p class="mono">celery_app.py · scheduler.py</p></div>
+      <div class="card"><span class="label">LLM = local Ollama, one swap point</span>
+        <p>Every AI call funnels through a single method behind a circuit breaker — provider-swappable by design.</p>
+        <p class="mono">ai_service.py · AIService.get_ollama_url()</p></div>
+      <div class="card"><span class="label">Connectors = raw OLTP drivers</span>
+        <p>psycopg2 / pymysql / oracledb / sqlite3 plus a SQLAlchemy-URL "JDBC". No warehouse/lakehouse connector.</p>
+        <p class="mono">backend/app/connectors/</p></div>
+      <div class="card"><span class="label">Auth &amp; tenancy are thin</span>
+        <p>Local HS256 JWT + 3-role RBAC (<code>admin/analyst/viewer</code>), no SSO. Multi-tenancy is an
+          unenforced nullable <code>tenant_id</code> placeholder.</p>
+        <p class="mono">rbac_service.py · models/pipeline.py</p></div>
+    </div>
+  </section>
+
+  <section id="matrix">
+    <div class="kicker"><span class="n">04</span><div class="eyebrow">The core of the assessment</div></div>
+    <h2>Conflict &amp; overlap matrix</h2>
+    <p class="lead">Each DataOne capability scored against the Databricks primitive it meets. The pattern is
+      the argument: infrastructure delegates; workflow intelligence stays.</p>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--retire)"></span><b class="mono">RETIRE</b>&nbsp;delete ours</span>
+      <span><span class="dot" style="background:var(--delegate)"></span><b class="mono">DELEGATE</b>&nbsp;call Databricks</span>
+      <span><span class="dot" style="background:var(--adapt)"></span><b class="mono">ADAPT</b>&nbsp;rewrite to push down</span>
+      <span><span class="dot" style="background:var(--keep)"></span><b class="mono">KEEP</b>&nbsp;differentiator</span>
+    </div>
+    <div class="tscroll">
+      <table class="matrix">
+        <thead><tr><th>Capability</th><th>Today</th><th>Databricks primitive</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>Query execution</td><td class="mono">fetchall(), 5k-row cap</td><td>SQL Warehouses, async statements</td><td><span class="chip retire">Retire</span></td></tr>
+          <tr><td>ETL / pipelines</td><td class="mono">in-process Python, 1k batches</td><td>Spark, Delta Live Tables / Lakeflow</td><td><span class="chip adapt">Adapt</span></td></tr>
+          <tr><td>Schema catalog &amp; profiling</td><td class="mono">Postgres-owned catalog</td><td>Unity Catalog information_schema</td><td><span class="chip delegate">Delegate</span></td></tr>
+          <tr><td>Data lineage</td><td class="mono">catalog snapshots / diff</td><td>UC automatic lineage</td><td><span class="chip delegate">Delegate</span></td></tr>
+          <tr><td>PII / classification</td><td class="mono">DAMA classifier</td><td>UC tags + auto-classification</td><td><span class="chip delegate">Delegate</span></td></tr>
+          <tr><td>Semantic / metrics layer</td><td class="mono">semantic_service</td><td>UC Metric Views / Genie model</td><td><span class="chip adapt">Adapt</span></td></tr>
+          <tr><td>NL2SQL / AskData</td><td class="mono">Ollama-backed</td><td>Databricks Genie / AI-BI</td><td><span class="chip keep">Keep</span></td></tr>
+          <tr><td>RBAC / masking / row policies</td><td class="mono">rbac_service + policies</td><td>UC grants, row filters, masks</td><td><span class="chip delegate">Delegate</span></td></tr>
+          <tr><td>Audit trail</td><td class="mono">buffered audit writes</td><td>UC audit / system tables</td><td><span class="chip keep">Keep*</span></td></tr>
+          <tr><td>Connectors</td><td class="mono">raw OLTP drivers</td><td>Lakehouse Federation, SQL connector</td><td><span class="chip adapt">Adapt</span></td></tr>
+          <tr><td>Orchestration / scheduling</td><td class="mono">Celery + Redis + Beat</td><td>Workflows / Jobs / Lakeflow</td><td><span class="chip adapt">Adapt</span></td></tr>
+          <tr><td>LLM inference</td><td class="mono">local Ollama</td><td>Model Serving / Foundation APIs</td><td><span class="chip delegate">Delegate</span></td></tr>
+          <tr><td>Multi-tenancy</td><td class="mono">unenforced placeholder</td><td>Workspace / UC catalog isolation</td><td><span class="chip adapt">Adapt</span></td></tr>
+          <tr><td>Auth / identity</td><td class="mono">local HS256 JWT</td><td>Databricks OAuth / SCIM</td><td><span class="chip delegate">Delegate</span></td></tr>
+          <tr><td>Agentic-DBA copilot</td><td class="mono">agentic_dba_engine</td><td>— no direct equivalent —</td><td><span class="chip keep">Keep</span></td></tr>
+          <tr><td>Schema Mapper workbench</td><td class="mono">mapping versioning UX</td><td>— no direct equivalent —</td><td><span class="chip keep">Keep</span></td></tr>
+          <tr><td>Autopilot governance loop</td><td class="mono">human-in-the-loop</td><td>— no direct equivalent —</td><td><span class="chip keep">Keep</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:14px;font-size:14px;color:var(--ink-faint)"><span class="mono">*</span> App-action audit
+      stays with DataOne; data-access audit delegates to UC. Classification &amp; lineage keep a fallback path for
+      non-Databricks sources so the multi-source story survives.</p>
+  </section>
+
+  <section id="design">
+    <div class="kicker"><span class="n">05</span><div class="eyebrow">Engineering</div></div>
+    <h2>Design changes by layer</h2>
+    <p class="lead">Ordered most-portable to most-invasive. Each names the file it touches — none of this is
+      speculative; it maps to code that exists today.</p>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Layer</th><th>Change</th><th>Touches</th></tr></thead>
+        <tbody>
+          <tr><td><b>LLM inference</b></td><td>Repoint to Model Serving / Genie behind the existing circuit breaker; add a provider abstraction. Nothing above <code>AIService</code> changes.</td><td class="mono">ai_service.py</td></tr>
+          <tr><td><b>Connectors</b></td><td>Add a <code>databricks</code> type on <code>databricks-sql-connector</code>; introspect via UC <code>information_schema</code>. Additive.</td><td class="mono">connectors/ · connector_catalog.py · types.ts</td></tr>
+          <tr><td><b>Query execution</b></td><td>For Databricks sources, submit async statements to the SQL Warehouse with chunked fetch instead of <code>fetchall()</code>-in-a-thread. Keep other paths.</td><td class="mono">query_execution_service.py</td></tr>
+          <tr><td><b>Pipelines / ETL</b></td><td>Generate Spark SQL / <code>MERGE</code> against Delta (or emit a DLT spec) instead of row-batching in Python. Grammar becomes a code-gen target.</td><td class="mono">pipeline_executor.py · transformation_grammar.py</td></tr>
+          <tr><td><b>Catalog / lineage</b></td><td>Read UC system tables + lineage APIs for Databricks sources; keep the app-owned catalog as fallback for others.</td><td class="mono">schema_catalog_service.py · diff_service.py</td></tr>
+          <tr><td><b>Orchestration</b></td><td>Data-plane jobs move to Databricks Workflows via the SDK; keep Celery for app-tier async. Scheduler becomes a thin submitter.</td><td class="mono">celery_app.py · scheduler.py</td></tr>
+          <tr><td><b>Auth / tenancy</b></td><td>App mode: workspace OAuth / on-behalf-of identity; map UC grants to roles; promote <code>tenant_id</code> to a real boundary. Highest-risk — touches every request.</td><td class="mono">rbac_service.py · models/pipeline.py</td></tr>
+          <tr><td><b>Frontend / hosting</b></td><td>Package as a Databricks App; resolve the API origin at <em>runtime</em> instead of build time. No feature-level UI rewrite.</td><td class="mono">frontend/src/lib/api.ts</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="effort">
+    <div class="kicker"><span class="n">06</span><div class="eyebrow">Sizing</div></div>
+    <h2>Effort estimate</h2>
+    <p class="lead">Person-weeks, 2–3 mid/senior engineers. Bars are relative; the wide bands are honest about
+      genuine unknowns (see §09). Colour = which phase the work lands in.</p>
+    <div class="efbars">
+      <div class="efrow"><div class="nm">LLM → Model Serving</div><div class="track"><div class="fill a" style="width:14%"></div></div><div class="wk">S · 1–2 wk</div></div>
+      <div class="efrow"><div class="nm">Databricks connector</div><div class="track"><div class="fill a" style="width:28%"></div></div><div class="wk">M · 2–4 wk</div></div>
+      <div class="efrow"><div class="nm">Query push-down</div><div class="track"><div class="fill b" style="width:36%"></div></div><div class="wk">M · 3–5 wk</div></div>
+      <div class="efrow"><div class="nm">Frontend App shell</div><div class="track"><div class="fill b" style="width:36%"></div></div><div class="wk">M · 3–5 wk</div></div>
+      <div class="efrow"><div class="nm">Catalog → Unity Catalog</div><div class="track"><div class="fill b" style="width:50%"></div></div><div class="wk">M–L · 4–7 wk</div></div>
+      <div class="efrow"><div class="nm">Orchestration → Workflows</div><div class="track"><div class="fill b" style="width:57%"></div></div><div class="wk">L · 5–8 wk</div></div>
+      <div class="efrow"><div class="nm">Auth / tenancy rewrite</div><div class="track"><div class="fill b" style="width:86%"></div></div><div class="wk">L–XL · 6–12 wk</div></div>
+      <div class="efrow"><div class="nm">ETL push-down (Spark/DLT)</div><div class="track"><div class="fill c" style="width:100%"></div></div><div class="wk">XL · 8–14 wk</div></div>
+    </div>
+    <div class="phaselab">
+      <span><b style="color:var(--keep)">■</b> Phase 1 — Integrate</span>
+      <span><b style="color:var(--adapt)">■</b> Phase 2 — App + delegate</span>
+      <span><b style="color:var(--retire)">■</b> Phase 3 — Selective native</span>
+    </div>
+    <p style="margin-top:22px"><b>Roll-up.</b> Rung A ≈ <span class="tnum">1.5–3 months</span> (low risk, ship first).
+      Rung B ≈ <span class="tnum">+2.5–4 months</span> (identity/governance dominates). Rung C ≈
+      <span class="tnum">+3–5 months</span> (scope to workloads Python can't handle).
+      <b>Reusable as-is:</b> the FastAPI shell, mapping/autopilot/agentic-DBA services + UX, audit, the
+      connector abstraction, the circuit-breaker pattern. <b>Genuine rewrites:</b> the execution engine and the auth/tenancy model.</p>
+  </section>
+
+  <section id="partnership">
+    <div class="kicker"><span class="n">07</span><div class="eyebrow">Strategy</div></div>
+    <h2>The partnership — upside &amp; the co-opetition trap</h2>
+    <p class="lead">The partnership is the strategic prize and the strategic risk. Every feature we delegate is
+      a feature Databricks could ship natively and commoditize. Read both columns before committing.</p>
+    <div class="split">
+      <div class="panel up">
+        <h3>Upside</h3>
+        <p class="sub">Why the partnership is worth pursuing</p>
+        <ul>
+          <li><b>Distribution.</b> Partner Connect + Marketplace reach every Databricks customer at lakehouse stand-up — a warm channel we don't have.</li>
+          <li><b>Credibility.</b> A "Built on Databricks" badge shortcuts enterprise security review and procurement.</li>
+          <li><b>Aligned co-sell.</b> Every DataOne query/pipeline burns DBUs — our usage <em>is</em> their revenue, so field teams have reason to bring us in.</li>
+          <li><b>Less to own.</b> Delegating compute, storage, catalog and governance means less to build, secure, scale and certify — we ride their compliance surface.</li>
+          <li><b>Enterprise reach.</b> Workspace identity + UC governance answer the SSO/RBAC/tenant gaps that are unbuilt in DataOne today — for free.</li>
+        </ul>
+      </div>
+      <div class="panel risk">
+        <h3>Risk</h3>
+        <p class="sub">Why to phase it and hold the line</p>
+        <ul>
+          <li><b>Commoditization.</b> The DELEGATE column is exactly what Databricks is building — Genie, Lakeflow Designer, UC auto-classification. Build on them and our surface shrinks as theirs grows.</li>
+          <li><b>Platform lock-in.</b> Rung C ties revenue and roadmap to one vendor's APIs and pricing.</li>
+          <li><b>Loss of our edge.</b> Our differentiation is being multi-source and DB-agnostic. Going native risks narrowing to a single-platform tool.</li>
+          <li><b>Marketplace economics.</b> Revenue share and listing terms compress margins — the channel isn't free.</li>
+          <li><b>Roadmap dependency.</b> Delivery dates become hostage to Databricks feature availability and API stability.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="pull">
+      <b>The defensible position.</b> Invest in the KEEP column — the agentic DBA workflow layer that sits
+      <em>above</em> Databricks primitives: governed schema design/migration, cross-source mapping, human-in-the-loop
+      autopilot. Treat Databricks as one powerful backend among several, never the whole product. Stay multi-source
+      so we remain the layer that spans <em>Databricks + everything the customer hasn't moved there yet</em> — which
+      is where migration and modernization work actually happens.
+    </div>
+  </section>
+
+  <section id="recommendation">
+    <div class="kicker"><span class="n">08</span><div class="eyebrow">The call</div></div>
+    <h2>Recommendation — phased and gated</h2>
+    <p class="lead">The three framings reconciled: ship the low-risk integration now, earn each next rung with
+      a go/no-go gate, and never let native ambition override the multi-source line.</p>
+    <div class="phases">
+      <div class="phase">
+        <div class="pn">Phase 1 · Integrate</div>
+        <h3>Rung A</h3>
+        <p>Ship the Databricks connector plus a Model Serving / Genie option. Databricks data becomes first-class in DataOne.</p>
+        <div class="gate"><span>Go / no-go gate</span>Real customer pull for Databricks data inside DataOne.</div>
+      </div>
+      <div class="phase">
+        <div class="pn">Phase 2 · App + delegate</div>
+        <h3>Rung B</h3>
+        <p>Run as a Databricks App with workspace identity; delegate catalog and governance to Unity Catalog. Pursue Marketplace validation.</p>
+        <div class="gate"><span>Go / no-go gate</span>B stable + partnership terms favorable.</div>
+      </div>
+      <div class="phase">
+        <div class="pn">Phase 3 · Selective native</div>
+        <h3>Rung C</h3>
+        <p>Push down only the pipeline/query workloads where in-process Python is a proven bottleneck. Don't rewrite on spec.</p>
+        <div class="gate"><span>Go / no-go gate</span>Measured performance/scale need.</div>
+      </div>
+    </div>
+    <p style="margin-top:22px"><b>Throughout:</b> hold the multi-source line. Databricks becomes the best-supported
+      backend, never the only one. Spend engineering on KEEP, delegate the DELEGATE layer, and keep the phasing reversible.</p>
+  </section>
+
+  <section id="questions">
+    <div class="kicker"><span class="n">09</span><div class="eyebrow">Before committing</div></div>
+    <h2>Open questions &amp; decisions needed</h2>
+    <p class="lead"><span class="mono">?</span> needs a product/business decision · <span class="mono">!</span> is a
+      security/governance-sensitive gap that needs sign-off.</p>
+    <div class="oq">
+      <div><span class="flag q">?</span><p><b>Target cloud(s).</b> AWS / Azure / GCP Databricks? Affects Model Serving + App availability.</p></div>
+      <div><span class="flag q">?</span><p><b>Single- vs multi-tenant SaaS</b> vs. customer-workspace App — drives the auth/tenancy rewrite.</p></div>
+      <div><span class="flag q">?</span><p><b>Which DELEGATE features do we concede</b> vs. keep as multi-source fallbacks (classification, semantic layer, lineage)? The core "how native" call.</p></div>
+      <div><span class="flag q">?</span><p><b>Is multi-source non-negotiable?</b> If yes, Rung C stays selective and Databricks is one backend.</p></div>
+      <div><span class="flag bang">!</span><p><b>Governance in App mode.</b> Mapping UC grants ↔ DataOne roles must not create a privilege-escalation path. Security sign-off before Phase 2.</p></div>
+      <div><span class="flag bang">!</span><p><b>Data residency / where inference runs.</b> Today's pitch is "data never leaves your environment" (local Ollama). Delegating to Model Serving/Genie changes that — confirm the compliance posture first.</p></div>
+      <div><span class="flag q">?</span><p><b>Partnership tier &amp; Marketplace terms.</b> Revenue share and co-sell commitments are inputs to the economics we don't yet have.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    Prepared as decision-support. Grounded in the current codebase — every capability cited maps to code in
+    this repo, not to roadmap or marketing. Re-validate against Databricks' current feature set before any
+    commitment; their DELEGATE-column surface moves fast.
+  </footer>
+
+</main>

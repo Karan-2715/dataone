@@ -1,0 +1,305 @@
+name: dataone
+
+# Shared env block — override any value by adding it to a .env file
+# (copy .env.example → .env and edit before first run)
+x-backend-env: &backend-env
+  DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/dataone}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://broker:6379/0}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://broker:6379/0}
+  OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+  OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-15}
+  OLLAMA_MAX_RETRIES: ${OLLAMA_MAX_RETRIES:-2}
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: ${DB_USER:-postgres}
+  DB_PASSWORD: ${DB_PASSWORD:-postgres}
+  REDIS_HOST: broker
+  REDIS_PORT: "6379"
+  SECRET_KEY: ${SECRET_KEY:-change-me-in-production-use-a-long-random-string}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+  ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:-admin123}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  SCHEMA_DRIFT_INTERVAL_MINUTES: ${SCHEMA_DRIFT_INTERVAL_MINUTES:-60}
+  # ACI.dev integration (requirements-specs-v4). ACI_API_KEY has no default
+  # on purpose — unset means the integration is disabled, never a baked-in
+  # secret. Bring the self-hosted ACI services up with:
+  #   docker compose --profile aci up -d
+  ACI_BASE_URL: ${ACI_BASE_URL:-http://aci:8000}
+  ACI_API_KEY: ${ACI_API_KEY:-}
+  ACI_PORTAL_URL: ${ACI_PORTAL_URL:-http://localhost:3001}
+  ACI_LINKED_ACCOUNT_OWNER_ID: ${ACI_LINKED_ACCOUNT_OWNER_ID:-dataone}
+  ACI_SLACK_INTERNAL_CHANNEL: ${ACI_SLACK_INTERNAL_CHANNEL:-}
+  DATAONE_BASE_URL: ${DATAONE_BASE_URL:-http://localhost:3011}
+  # Connector credential vaulting (requirements-specs-v5). No baked-in key:
+  # unset = legacy mode (secrets stay in config, responses stay redacted).
+  # aes256: generate a key with `openssl rand -base64 32` and set it in .env.
+  # keeper: mount the KSM bootstrap config file (never commit it) and point
+  # KSM_CONFIG_PATH at the mounted path.
+  SECRET_MANAGER_BACKEND: ${SECRET_MANAGER_BACKEND:-aes256}
+  SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:-}
+  SECRETS_ENCRYPTION_KEY_PREVIOUS: ${SECRETS_ENCRYPTION_KEY_PREVIOUS:-}
+  KSM_CONFIG_PATH: ${KSM_CONFIG_PATH:-}
+  KSM_FOLDER_UID: ${KSM_FOLDER_UID:-}
+  # Microsoft Entra SSO (optional, stage stopgap). No baked-in client ID:
+  # unset = disabled, /entra/login returns a clear "not configured" error.
+  ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+  ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+  ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+  ENTRA_REDIRECT_URI: ${ENTRA_REDIRECT_URI:-}
+  FRONTEND_LOGIN_URL: ${FRONTEND_LOGIN_URL:-http://localhost:3011/login}
+  # TEMPORARY stopgap — see .env.example. Leave unset in normal operation.
+  ENTRA_AUTO_PROVISION_DOMAIN: ${ENTRA_AUTO_PROVISION_DOMAIN:-}
+  # ── Databricks Integration ──────────────────────────────────
+  DATABRICKS_WORKSPACE_URL: ${DATABRICKS_WORKSPACE_URL:-}
+  DATABRICKS_ACCESS_TOKEN: ${DATABRICKS_ACCESS_TOKEN:-}
+  DATABRICKS_USE_LLM: ${DATABRICKS_USE_LLM:-false}
+  DATABRICKS_LLM_ENDPOINT: ${DATABRICKS_LLM_ENDPOINT:-}
+  DATABRICKS_GENIE_SPACE_ID: ${DATABRICKS_GENIE_SPACE_ID:-}
+  DATABRICKS_NATIVE_MODE: ${DATABRICKS_NATIVE_MODE:-false}
+  DATABRICKS_HOST: ${DATABRICKS_HOST:-}
+  DATABRICKS_OAUTH_CLIENT_ID: ${DATABRICKS_OAUTH_CLIENT_ID:-}
+  DATABRICKS_OAUTH_CLIENT_SECRET: ${DATABRICKS_OAUTH_CLIENT_SECRET:-}
+  ENABLE_UNITY_CATALOG: ${ENABLE_UNITY_CATALOG:-true}
+  ENABLE_EXTERNAL_CONNECTORS: ${ENABLE_EXTERNAL_CONNECTORS:-true}
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: dataone-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: dataone
+    volumes:
+      - dataone_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 128m
+
+  # ── Redis Broker ───────────────────────────────────────────
+  broker:
+    image: redis:7-alpine
+    container_name: dataone-broker
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - dataone_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+        reservations:
+          memory: 64m
+
+  # ── FastAPI Backend ────────────────────────────────────────
+  api:
+    image: salonisidheshwar/dataone-backend:v1.0.0
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dataone-api
+    restart: unless-stopped
+    ports:
+      - "8011:8000"
+    environment:
+      <<: *backend-env
+    volumes:
+      - dataone_shared_data:/shared/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 128m
+
+  # ── Celery Worker ──────────────────────────────────────────
+  worker:
+    image: salonisidheshwar/dataone-backend:v1.0.0
+    container_name: dataone-worker
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      <<: *backend-env
+    volumes:
+      - dataone_shared_data:/shared/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import celery; print('ok')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 128m
+
+  # ── Celery Beat Scheduler ─────────────────────────────────
+  beat:
+    image: salonisidheshwar/dataone-backend:v1.0.0
+    container_name: dataone-beat
+    restart: unless-stopped
+    command: celery -A app.core.celery_app beat --loglevel=info
+    environment:
+      <<: *backend-env
+    volumes:
+      - dataone_shared_data:/shared/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import celery; print('ok')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+        reservations:
+          memory: 64m
+
+  # ── Frontend (nginx) ───────────────────────────────────────
+  frontend:
+    image: salonisidheshwar/dataone-frontend:v1.0.0
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8011}
+        NEXT_PUBLIC_ENTRA_ENABLED: ${NEXT_PUBLIC_ENTRA_ENABLED:-false}
+        NEXT_PUBLIC_DATABRICKS_MODE: ${NEXT_PUBLIC_DATABRICKS_MODE:-true}
+    container_name: dataone-frontend
+    restart: unless-stopped
+    ports:
+      - "3011:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+        reservations:
+          memory: 32m
+
+  # ── ACI.dev self-hosted tool-calling platform (requirements-specs-v4) ──
+  # Optional profile: `docker compose --profile aci up -d`. The default
+  # stack is unchanged without the flag. ACI's backend is built from its
+  # own repo (Apache 2.0) — clone it first:
+  #   git clone https://github.com/aipotheosis-labs/aci vendor/aci
+  # then copy vendor/aci/backend/.env.example → .env.local per its README
+  # (needs SERVER_OPENAI_API_KEY for its embedding-based tool search) and
+  # seed it: docker compose --profile aci exec aci ./scripts/seed_db.sh
+  # Self-hosted ACI ships a small starter tool catalog (Brave Search,
+  # Hacker News, Gmail); the full 600+ catalog is hosted-only.
+  aci-db:
+    image: pgvector/pgvector:pg16
+    container_name: dataone-aci-db
+    profiles: ["aci"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${ACI_DB_USER:-aci}
+      POSTGRES_PASSWORD: ${ACI_DB_PASSWORD:-aci}
+      POSTGRES_DB: aci
+    volumes:
+      - dataone_acidata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aci"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+        reservations:
+          memory: 128m
+
+  aci:
+    image: dataone-aci:latest
+    build:
+      context: ./vendor/aci/backend
+      dockerfile: Dockerfile
+    container_name: dataone-aci
+    profiles: ["aci"]
+    restart: unless-stopped
+    ports:
+      - "8010:8000"
+    environment:
+      SERVER_DB_HOST: aci-db
+      SERVER_DB_PORT: "5432"
+      SERVER_DB_USER: ${ACI_DB_USER:-aci}
+      SERVER_DB_PASSWORD: ${ACI_DB_PASSWORD:-aci}
+      SERVER_DB_NAME: aci
+      SERVER_OPENAI_API_KEY: ${ACI_SERVER_OPENAI_API_KEY:-}
+    depends_on:
+      aci-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health')\" || python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+        reservations:
+          memory: 256m
+
+volumes:
+  dataone_pgdata:
+    name: dataone-pgdata
+  dataone_redisdata:
+    name: dataone-redisdata
+  dataone_shared_data:
+    name: dataone-shared-data
+  dataone_acidata:
+    name: dataone-aci-data
+
+networks:
+  default:
+    name: dataone-network

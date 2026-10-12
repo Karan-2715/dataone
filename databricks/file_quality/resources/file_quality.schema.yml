@@ -1,0 +1,12 @@
+resources:
+  schemas:
+    dq_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: DataOne file data-quality results and the uploads landing volume.
+      grants:
+        # The DataOne app reads file_quality_results (SELECT inherits to tables the pipeline creates)
+        - principal: ${var.app_service_principal}
+          privileges:
+            - USE_SCHEMA
+            - SELECT

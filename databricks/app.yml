@@ -1,0 +1,390 @@
+# Databricks Lakehouse App Manifest for DataOne
+# This file defines how DataOne runs as a native Databricks application
+# Reference: https://docs.databricks.com/en/dev-tools/lakehouse-apps.html
+
+name: dataone
+description: |
+  DataOne - Multi-source data integration, schema mapping, and query platform
+  with AI-powered assistance. Connect to Databricks Unity Catalog, PostgreSQL,
+  MySQL, Snowflake, and more. Map schemas with LLM suggestions and execute
+  federated queries across multiple data sources.
+
+version: "1.0.0"
+author: "Veltris Technologies"
+license: "Proprietary"
+
+# App configuration
+config:
+  # Public-facing configuration (shown to users during install)
+  public:
+    APP_NAME:
+      type: string
+      default: "DataOne"
+      description: "Application display name"
+    
+    LOG_LEVEL:
+      type: string
+      default: "INFO"
+      enum: ["DEBUG", "INFO", "WARNING", "ERROR"]
+      description: "Application logging level"
+    
+    SESSION_TIMEOUT_HOURS:
+      type: integer
+      default: 24
+      description: "User session timeout in hours"
+    
+    MAX_QUERY_ROWS:
+      type: integer
+      default: 10000
+      description: "Maximum rows returned per query"
+  
+  # Internal configuration (managed by app)
+  internal:
+    DATABASE_URL:
+      type: string
+      default: "postgresql://dataone:dataone@postgres:5432/dataone"
+      description: "Internal PostgreSQL connection string"
+    
+    REDIS_URL:
+      type: string
+      default: "redis://redis:6379/0"
+      description: "Internal Redis connection string"
+
+# OAuth2 configuration for Databricks authentication
+oauth:
+  # Request Unity Catalog read permissions
+  scopes:
+    - "sql"              # Execute SQL queries
+    - "unity-catalog"    # Read Unity Catalog metadata
+  
+  # OAuth callback configuration
+  redirect_uri: "${DATABRICKS_APP_URL}/api/v1/auth/databricks/callback"
+  
+  # Token refresh settings
+  refresh_token_enabled: true
+  token_expiry_buffer_seconds: 300
+
+# Services definition
+services:
+  # PostgreSQL database for DataOne metadata
+  postgres:
+    image: postgres:15-alpine
+    resources:
+      cpu: 1
+      memory: 2Gi
+      storage: 10Gi
+    environment:
+      POSTGRES_DB: dataone
+      POSTGRES_USER: dataone
+      POSTGRES_PASSWORD: "${SECRET_POSTGRES_PASSWORD}"
+    volumes:
+      - name: postgres-data
+        mount_path: /var/lib/postgresql/data
+    health_check:
+      type: tcp
+      port: 5432
+      interval_seconds: 10
+      timeout_seconds: 5
+      retries: 3
+    ports:
+      - container: 5432
+        protocol: tcp
+
+  # Redis for caching and Celery broker
+  redis:
+    image: redis:7-alpine
+    resources:
+      cpu: 0.5
+      memory: 512Mi
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - name: redis-data
+        mount_path: /data
+    health_check:
+      type: tcp
+      port: 6379
+      interval_seconds: 10
+      timeout_seconds: 5
+      retries: 3
+    ports:
+      - container: 6379
+        protocol: tcp
+
+  # DataOne backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: databricks/backend.Dockerfile
+    image: docker.io/salonisidheshwar/dataone-backend:v1.0.0
+    resources:
+      cpu: 2
+      memory: 4Gi
+    environment:
+      # Database
+      DATABASE_URL: "postgresql://dataone:${SECRET_POSTGRES_PASSWORD}@postgres:5432/dataone"
+      
+      # Redis
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      
+      # Databricks integration
+      DATABRICKS_HOST: "${DATABRICKS_HOST}"
+      DATABRICKS_WORKSPACE_URL: "${DATABRICKS_WORKSPACE_URL}"
+      DATABRICKS_OAUTH_CLIENT_ID: "${DATABRICKS_OAUTH_CLIENT_ID}"
+      DATABRICKS_OAUTH_CLIENT_SECRET: "${SECRET_DATABRICKS_OAUTH_CLIENT_SECRET}"
+      
+      # App URLs
+      BACKEND_URL: "${DATABRICKS_APP_URL}"
+      FRONTEND_URL: "${DATABRICKS_APP_URL}"
+      
+      # Security
+      SECRET_KEY: "${SECRET_APP_SECRET_KEY}"
+      JWT_SECRET_KEY: "${SECRET_JWT_SECRET_KEY}"
+      
+      # Application settings
+      LOG_LEVEL: "${CONFIG_LOG_LEVEL}"
+      MAX_QUERY_ROWS: "${CONFIG_MAX_QUERY_ROWS}"
+      SESSION_TIMEOUT_HOURS: "${CONFIG_SESSION_TIMEOUT_HOURS}"
+      
+      # Feature flags for Databricks mode
+      DATABRICKS_NATIVE_MODE: "true"
+      ENABLE_UNITY_CATALOG: "true"
+      ENABLE_EXTERNAL_CONNECTORS: "true"  # Still allow other DB connections
+    
+    depends_on:
+      - postgres
+      - redis
+    
+    health_check:
+      type: http
+      path: /health
+      port: 8000
+      interval_seconds: 15
+      timeout_seconds: 10
+      retries: 3
+      initial_delay_seconds: 30
+    
+    ports:
+      - container: 8000
+        protocol: http
+        public: false  # Not exposed externally
+
+  # Celery worker for async tasks
+  worker:
+    build:
+      context: ..
+      dockerfile: databricks/backend.Dockerfile
+    image: docker.io/salonisidheshwar/dataone-backend:v1.0.0
+    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+    resources:
+      cpu: 2
+      memory: 4Gi
+    environment:
+      # Same as backend
+      DATABASE_URL: "postgresql://dataone:${SECRET_POSTGRES_PASSWORD}@postgres:5432/dataone"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      DATABRICKS_HOST: "${DATABRICKS_HOST}"
+      DATABRICKS_WORKSPACE_URL: "${DATABRICKS_WORKSPACE_URL}"
+      DATABRICKS_OAUTH_CLIENT_ID: "${DATABRICKS_OAUTH_CLIENT_ID}"
+      DATABRICKS_OAUTH_CLIENT_SECRET: "${SECRET_DATABRICKS_OAUTH_CLIENT_SECRET}"
+      SECRET_KEY: "${SECRET_APP_SECRET_KEY}"
+      JWT_SECRET_KEY: "${SECRET_JWT_SECRET_KEY}"
+      LOG_LEVEL: "${CONFIG_LOG_LEVEL}"
+      DATABRICKS_NATIVE_MODE: "true"
+      ENABLE_UNITY_CATALOG: "true"
+    
+    depends_on:
+      - postgres
+      - redis
+      - backend
+
+  # Celery beat scheduler
+  beat:
+    build:
+      context: ..
+      dockerfile: databricks/backend.Dockerfile
+    image: docker.io/salonisidheshwar/dataone-backend:v1.0.0
+    command: ["celery", "-A", "app.core.celery_app", "beat", "--loglevel=info"]
+    resources:
+      cpu: 0.5
+      memory: 512Mi
+    environment:
+      # Same as backend (minimal set)
+      DATABASE_URL: "postgresql://dataone:${SECRET_POSTGRES_PASSWORD}@postgres:5432/dataone"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      LOG_LEVEL: "${CONFIG_LOG_LEVEL}"
+    
+    depends_on:
+      - postgres
+      - redis
+      - backend
+
+  # DataOne frontend
+  frontend:
+    build:
+      context: ..
+      dockerfile: databricks/frontend.Dockerfile
+    image: docker.io/salonisidheshwar/dataone-frontend:v1.0.0
+    resources:
+      cpu: 1
+      memory: 1Gi
+    environment:
+      NEXT_PUBLIC_API_URL: "${DATABRICKS_APP_URL}/api/v1"
+      NEXT_PUBLIC_WS_URL: "${DATABRICKS_APP_URL}/ws"
+      NEXT_PUBLIC_APP_NAME: "${CONFIG_APP_NAME}"
+      NEXT_PUBLIC_DATABRICKS_MODE: "true"
+      NODE_ENV: "production"
+    
+    depends_on:
+      - backend
+    
+    health_check:
+      type: http
+      path: /health
+      port: 3000
+      interval_seconds: 15
+      timeout_seconds: 10
+      retries: 3
+    
+    ports:
+      - container: 3000
+        protocol: http
+        public: true  # This is the main entry point
+
+# Persistent volumes
+volumes:
+  - name: postgres-data
+    size: 10Gi
+    storage_class: standard
+  
+  - name: redis-data
+    size: 1Gi
+    storage_class: standard
+
+# Networking
+networking:
+  # Internal network for service-to-service communication
+  internal:
+    - postgres
+    - redis
+    - backend
+    - worker
+    - beat
+  
+  # Public ingress (only frontend)
+  ingress:
+    - service: frontend
+      port: 3000
+      path: /
+      tls: true
+
+# Secrets required for installation
+secrets:
+  - name: SECRET_POSTGRES_PASSWORD
+    description: "PostgreSQL database password"
+    required: true
+    generate: true  # Auto-generate if not provided
+  
+  - name: SECRET_APP_SECRET_KEY
+    description: "Application secret key for session encryption"
+    required: true
+    generate: true
+  
+  - name: SECRET_JWT_SECRET_KEY
+    description: "JWT token signing key"
+    required: true
+    generate: true
+  
+  - name: SECRET_DATABRICKS_OAUTH_CLIENT_SECRET
+    description: "Databricks OAuth client secret (provided during app registration)"
+    required: true
+    generate: false  # Must be provided by Databricks
+
+# Required permissions
+permissions:
+  workspace:
+    - "apps:read"      # Read app configuration
+    - "apps:write"     # Update app state
+  
+  unity_catalog:
+    - "catalogs:read"   # List catalogs
+    - "schemas:read"    # List schemas
+    - "tables:read"     # List tables and columns
+    - "views:read"      # List views
+    - "functions:read"  # List functions
+  
+  sql:
+    - "warehouses:use"  # Execute queries on SQL warehouses
+    - "queries:create"  # Create query history
+
+# Installation hooks
+hooks:
+  # Database migrations run automatically in main.py lifespan
+  # No manual migration needed
+  
+  # Cleanup on uninstall (optional - volumes are retained by default)
+  pre_uninstall:
+    - service: backend
+      command: ["python", "-m", "app.scripts.cleanup"]
+      timeout_seconds: 60
+
+# Monitoring and observability
+monitoring:
+  metrics:
+    enabled: true
+    port: 9090
+    path: /metrics
+  
+  logs:
+    enabled: true
+    retention_days: 30
+
+# Resource scaling
+scaling:
+  # Backend can scale horizontally
+  backend:
+    min_replicas: 1
+    max_replicas: 5
+    cpu_threshold: 70
+    memory_threshold: 80
+  
+  # Workers can scale based on queue depth
+  worker:
+    min_replicas: 1
+    max_replicas: 10
+    queue_depth_threshold: 100
+  
+  # Frontend can scale horizontally
+  frontend:
+    min_replicas: 1
+    max_replicas: 3
+    cpu_threshold: 70
+
+# Marketplace metadata
+marketplace:
+  category: "Data Integration"
+  tags:
+    - "data-integration"
+    - "etl"
+    - "schema-mapping"
+    - "multi-source"
+    - "unity-catalog"
+    - "ai-powered"
+  
+  screenshots:
+    - path: "marketplace/screenshots/dashboard.png"
+      caption: "DataOne Dashboard - Manage connections and schemas"
+    - path: "marketplace/screenshots/schema-mapper.png"
+      caption: "AI-Powered Schema Mapping"
+    - path: "marketplace/screenshots/query-studio.png"
+      caption: "Query Studio - Execute federated queries"
+  
+  support:
+    email: "support@veltris.com"
+    documentation: "https://docs.dataone.app"
+    website: "https://dataone.app"

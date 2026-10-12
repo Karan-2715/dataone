@@ -1,0 +1,8 @@
+command: ["python", "start.py"]
+env:
+  # Shared key for the Databricks data-quality job -> POST /api/v1/data-quality/ingest
+  - name: DQ_INGEST_KEY
+    valueFrom: dq-ingest-key
+  # Genie agent that answers natural-language questions (Query Workspace -> Ask Genie)
+  - name: DATABRICKS_GENIE_SPACE_ID
+    valueFrom: genie-space
