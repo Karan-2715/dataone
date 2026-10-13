@@ -14,6 +14,7 @@ first use for that source type. Subsequent triggers reuse the same job.
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -424,7 +425,10 @@ class DatabricksIngestionService:
             logger.info("Connection type %s not supported for Lakehouse Federation", src_type)
             return {"status": "unsupported", "type": src_type}
         
-        cfg = source_conn.config or {}
+        # Credentials may already have been moved out of the connection row by
+        # ConnectionService. Federation must resolve the server-side vault copy.
+        from app.services.connection_secrets_service import resolve_connection_config
+        cfg = resolve_connection_config(source_conn)
         host = cfg.get("host", cfg.get("account", ""))
         port = cfg.get("port", "")
         if src_type == "snowflake":
@@ -500,24 +504,30 @@ class DatabricksIngestionService:
             
             try:
                 from databricks.sdk.service import catalog as cat_svc
+                principals = ["account users"]
+                app_principal = os.getenv("DATABRICKS_CLIENT_ID")
+                if app_principal:
+                    principals.append(app_principal)
                 ws.grants.update(
                     securable_type=cat_svc.SecurableType.CATALOG,
                     full_name=catalog_name,
                     changes=[
                         cat_svc.PermissionsChange(
-                            principal="account users",
+                            principal=principal,
                             add=[cat_svc.Privilege.USE_CATALOG, cat_svc.Privilege.USE_SCHEMA, cat_svc.Privilege.SELECT]
                         )
+                        for principal in principals
                     ]
                 )
-                logger.info("Granted permissions to account users for %s", catalog_name)
+                logger.info("Granted catalog access to %s for %s", principals, catalog_name)
             except Exception as e:
-                logger.warning("Failed to grant permissions on catalog: %s", e)
-                
+                logger.error("Failed to grant permissions on catalog %s: %s", catalog_name, e)
+                raise
+
             return {
-                "status": "success",
-                "connection_name": connection_name,
-                "catalog_name": catalog_name
+                "status": "ready",
+                "catalog": catalog_name,
+                "connection": connection_name,
             }
             
         except Exception as e:

@@ -44,7 +44,7 @@ def _owner_scope(user: User) -> str | None:
     return None if user.role == "admin" else user.email
 
 
-def _to_response(conn: DBConnection) -> ConnectionResponse:
+def _to_response(conn: DBConnection, *, unity_catalog: Optional[dict] = None) -> ConnectionResponse:
     """Single choke point for serializing a connection — always redacts
     secret config values (TRD FR3: secrets are never returned after save)."""
     return ConnectionResponse(
@@ -60,6 +60,7 @@ def _to_response(conn: DBConnection) -> ConnectionResponse:
         created_by=conn.created_by,
         owner_email=conn.owner_email,
         created_at=conn.created_at,
+        unity_catalog=unity_catalog,
     )
 
 
@@ -151,18 +152,43 @@ def create_connection(conn: ConnectionCreate, db: Session = Depends(get_db),
     )
     
     # Automatically trigger Databricks ingestion pipeline if it's a source connector
+    unity_catalog = None
     if conn.type.lower() != "databricks":
         try:
             from app.services.databricks_ingestion_service import DatabricksIngestionService
             logger.info(f"Automatically setting up Databricks Lakehouse Federation for new connector {created.id}")
-            DatabricksIngestionService.setup_lakehouse_federation(
+            unity_catalog = DatabricksIngestionService.setup_lakehouse_federation(
                 source_conn=created,
                 actor=_actor(user)
             )
         except Exception as e:
-            logger.error(f"Failed to auto-trigger Databricks pipeline: {e}")
+            logger.exception("Failed to publish connector %d to Unity Catalog", created.id)
+            unity_catalog = {
+                "status": "failed",
+                "message": "Connection saved, but publishing it to Unity Catalog failed. Use Retry Unity Catalog after checking workspace permissions.",
+            }
             
-    return _to_response(created)
+    return _to_response(created, unity_catalog=unity_catalog)
+
+
+@router.post("/{id}/federate")
+def federate_connection(id: int, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Create or repair a foreign Unity Catalog for a saved source connection."""
+    db_conn = ConnectionService.get_connection(db, id, owner_email=_owner_scope(user))
+    if db_conn.type.lower() == "databricks":
+        raise HTTPException(status_code=400, detail="Databricks connections are already Unity Catalog sources")
+    try:
+        from app.services.databricks_ingestion_service import DatabricksIngestionService
+        return DatabricksIngestionService.setup_lakehouse_federation(
+            source_conn=db_conn, actor=_actor(user)
+        )
+    except Exception as exc:
+        logger.exception("Unity Catalog federation retry failed for connector %d", id)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not publish this connection to Unity Catalog. Check CREATE CONNECTION, CREATE CATALOG, and grant permissions.",
+        ) from exc
 
 
 @router.get("/", response_model=List[ConnectionResponse])
@@ -321,7 +347,7 @@ def test_connection(id: int, db: Session = Depends(get_db),
     )
 
 
-def _databricks_live_schema(db: Session, conn: DBConnection, snapshot) -> Optional[dict]:
+def _databricks_live_schema(db: Session, conn: DBConnection, snapshot, *, refresh: bool = False) -> Optional[dict]:
     """Schema of a Databricks connection from the live Unity Catalog (REST), cached on the connection's own snapshot.
 
     Serves the snapshot while it is younger than DATABRICKS_SCHEMA_TTL_SECONDS, otherwise rescans. Returns None when
@@ -330,7 +356,7 @@ def _databricks_live_schema(db: Session, conn: DBConnection, snapshot) -> Option
     from app.models.schema_snapshot import SchemaSnapshot
 
     ttl = settings.DATABRICKS_SCHEMA_TTL_SECONDS
-    if snapshot is not None and snapshot.captured_at:
+    if not refresh and snapshot is not None and snapshot.captured_at:
         captured = snapshot.captured_at
         # Postgres returns tz-aware timestamps, SQLite naive ones (stored as UTC either way)
         now = datetime.now(timezone.utc) if captured.tzinfo else datetime.utcnow()
@@ -356,6 +382,7 @@ def _databricks_live_schema(db: Session, conn: DBConnection, snapshot) -> Option
 
 @router.get("/{id}/schema")
 def get_schema(id: int, db: Session = Depends(get_db),
+               refresh: bool = Query(False),
                user: User = Depends(get_current_user)):
     """Extract full structural schema metadata from the connector."""
     from app.models.schema_snapshot import SchemaSnapshot
@@ -371,7 +398,7 @@ def get_schema(id: int, db: Session = Depends(get_db),
 
         # Databricks: show the live catalogs of the current workspace instead of another connection's old snapshot
         if db_conn.type.lower() == "databricks":
-            live = _databricks_live_schema(db, db_conn, snapshot)
+            live = _databricks_live_schema(db, db_conn, snapshot, refresh=refresh)
             if live is not None:
                 return {"id": id, "name": db_conn.name, "schema": live}
 

@@ -68,6 +68,7 @@ interface Connection {
   health_status: string;
   config: Record<string, unknown>;
   created_at?: string;
+  unity_catalog?: { status: string; catalog?: string; message?: string } | null;
 }
 
 interface CatalogColumn {
@@ -519,6 +520,7 @@ export default function ConnectorsPage() {
   const [ingestedTables, setIngestedTables] = useState<IngestedTable[]>([]);
   const [showIngestedTables, setShowIngestedTables] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // File upload (CSV, TSV, JSON, JSONL, Parquet, Excel)
@@ -617,6 +619,7 @@ export default function ConnectorsPage() {
 
   const handleEstablishConnection = async () => {
     setError("");
+    setNotice("");
     setRunStatus("connecting");
     try {
       const cleanName = (str: string) => str.replace(/[^A-Za-z0-9_\-]/g, "_").replace(/_+/g, "_").substring(0, 100).replace(/_$/, "");
@@ -627,7 +630,15 @@ export default function ConnectorsPage() {
         environment: "prod",
         config: { host: source.host, port: source.port, dbname: source.database, user: source.username, password: source.password, ssl_mode: source.ssl, catalog: source.catalog },
       };
-      await api.post<{ id: number }>("/api/v1/connectors/", srcPayload);
+      const created = await api.post<Connection>("/api/v1/connectors/", srcPayload);
+
+      if (created.unity_catalog?.status === "failed") {
+        setError(created.unity_catalog.message || "Connection saved, but Unity Catalog publishing failed.");
+      } else if (created.unity_catalog?.catalog) {
+        setNotice(`Connection saved and published as Unity Catalog ${created.unity_catalog.catalog}.`);
+      } else {
+        setNotice("Connection saved.");
+      }
 
       setRunStatus("idle");
       setSource(defaultSource);
@@ -650,6 +661,17 @@ export default function ConnectorsPage() {
       setConnections(prev => prev.filter(c => c.id !== id));
     } catch (err) {
       alert("Failed to delete connection: " + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  const retryFederation = async (conn: Connection) => {
+    setError("");
+    setNotice("");
+    try {
+      const result = await api.post<{ catalog: string }>(`/api/v1/connectors/${conn.id}/federate`, {});
+      setNotice(`${conn.name} is available in Unity Catalog as ${result.catalog}.`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unity Catalog publishing failed.");
     }
   };
 
@@ -701,6 +723,8 @@ export default function ConnectorsPage() {
 
       {/* Tab content */}
       <div className="relative z-10 flex-1 max-w-[1600px] mx-auto w-full px-8 py-8">
+        {notice && <div role="status" className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-300">{notice}</div>}
+        {activeTab === "connections" && error && <div role="alert" className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
 
         {/* ── NEW CONNECTION TAB ── */}
         {activeTab === "new" && (
@@ -955,6 +979,12 @@ export default function ConnectorsPage() {
                           <span className="truncate">{String(v)}</span>
                         </div>
                       ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => router.push(`/dashboard/schema-mapper?connection_id=${conn.id}`)} className="rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20">Open in Schema Mapper</button>
+                      {conn.type.toLowerCase() !== "databricks" && (
+                        <button onClick={() => void retryFederation(conn)} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/5">Retry Unity Catalog</button>
+                      )}
                     </div>
                   </div>
                 ))}

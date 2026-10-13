@@ -42,6 +42,12 @@ class InstallRequest(BaseModel):
     schedule_cron: Optional[str] = Field(default=None, max_length=120)
 
 
+class QualityRunRequest(BaseModel):
+    catalog: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    schema_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    table: Optional[str] = Field(default=None, min_length=1, max_length=255)
+
+
 def get_workspace_client(
     user: User = Depends(installer_roles),
     db: Session = Depends(get_db),
@@ -150,6 +156,7 @@ def install(
 
 @router.post("/run")
 def run_quality_job(
+    req: QualityRunRequest | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(installer_roles),
     w: WorkspaceClient = Depends(get_workspace_client),
@@ -159,8 +166,15 @@ def run_quality_job(
     if row is None or row.job_id is None:
         raise HTTPException(409, "DataOne is not installed in this workspace yet")
     installer = WorkspaceInstaller(w, user.email)
+    params = None
+    if req is not None and req.catalog:
+        if req.table and not req.schema_name:
+            raise HTTPException(422, "schema_name is required when table is selected")
+        params = {"catalog": req.catalog, "schemas": req.schema_name or ""}
+        if req.table:
+            params["tables"] = f"{req.schema_name}.{req.table}"
     try:
-        run_id = installer.run_job_now(row.job_id)
+        run_id = installer.run_job_now(row.job_id, notebook_params=params)
     except DatabricksError as exc:
         raise HTTPException(502, f"Could not start the job: {exc}") from exc
     emit_audit_event(db, "workspace_job_run", actor=user.email, module="databricks",

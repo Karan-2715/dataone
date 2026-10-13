@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
@@ -38,7 +38,7 @@ class PreviewResponse(BaseModel):
 @router.get("/preview/{mapping_id}", response_model=PreviewResponse)
 def get_table_preview(
     mapping_id: int,
-    limit: int = 300,
+    limit: int = Query(300, ge=1, le=1000),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

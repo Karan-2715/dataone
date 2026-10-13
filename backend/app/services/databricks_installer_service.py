@@ -141,8 +141,10 @@ class WorkspaceInstaller:
         outcome.ok = True
         return outcome
 
-    def run_job_now(self, job_id: int) -> int:
-        return self.w.jobs.run_now(job_id).run_id
+    def run_job_now(self, job_id: int, notebook_params: dict[str, str] | None = None) -> int:
+        if notebook_params is None:
+            return self.w.jobs.run_now(job_id).run_id
+        return self.w.jobs.run_now(job_id, notebook_params=notebook_params).run_id
 
     def job_run_url(self, job_id: int, run_id: int) -> str:
         return f"{self.w.config.host.rstrip('/')}/jobs/{job_id}/runs/{run_id}"

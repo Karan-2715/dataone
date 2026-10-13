@@ -32,6 +32,7 @@ class ConnectionResponse(ConnectionBase):
     owner_email: Optional[str] = None
     created_at: Optional[datetime] = None
     databricks_detected: bool = False  # True for auto-detected workspace connection
+    unity_catalog: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

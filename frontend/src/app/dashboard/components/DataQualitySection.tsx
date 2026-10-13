@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { UseWidgetDataResult } from "../hooks/useWidgetData";
 import type { DQScore, DQSummary } from "../types";
@@ -51,6 +51,7 @@ function Placeholder({ children }: { children: React.ReactNode }) {
 
 type FileRunState = { finished: boolean; success: boolean; message: string };
 type FileSyncResult = { synced: boolean; tables: number; detail?: string };
+type CatalogSelection = { catalog: string; schema: string; table: string };
 
 const FILE_RUN_POLL_MS = 5_000;
 const FILE_RUN_MAX_POLLS = 120; // ~10 minutes
@@ -117,6 +118,87 @@ function FileCheckControls({ onDone }: { onDone: () => void }) {
   );
 }
 
+function CatalogQualityControls({ selection, onChange, onDone }: {
+  selection: CatalogSelection;
+  onChange: (selection: CatalogSelection) => void;
+  onDone: () => void;
+}) {
+  const [connectionId, setConnectionId] = useState<number | null>(null);
+  const [names, setNames] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const load = useCallback(async (refresh = false) => {
+    setMessage("");
+    try {
+      let id = connectionId;
+      if (id == null) {
+        const connections = await api.get<Array<{ id: number; type: string }>>("/api/v1/connectors/");
+        id = connections.find((c) => c.type?.toLowerCase() === "databricks")?.id ?? null;
+        setConnectionId(id);
+      }
+      if (id == null) throw new Error("Add a Databricks connection to browse Unity Catalog");
+      const result = await api.get<{ schema: Record<string, unknown> }>(`/api/v1/connectors/${id}/schema${refresh ? "?refresh=true" : ""}`);
+      setNames(Object.keys(result.schema ?? {}).filter((name) => name.split(".").length >= 3));
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not load Unity Catalog");
+    }
+  }, [connectionId]);
+
+  useEffect(() => { void load(); }, [load]);
+  const tree = names.reduce<Record<string, Record<string, string[]>>>((acc, full) => {
+    const [catalog, schema, ...rest] = full.split(".");
+    const table = rest.join(".");
+    if (!catalog || !schema || !table || table === "(empty_schema)") return acc;
+    acc[catalog] ??= {};
+    acc[catalog][schema] ??= [];
+    acc[catalog][schema].push(table);
+    return acc;
+  }, {});
+  const catalogs = Object.keys(tree).sort();
+  const schemas = selection.catalog ? Object.keys(tree[selection.catalog] ?? {}).sort() : [];
+  const tables = selection.catalog && selection.schema ? [...(tree[selection.catalog]?.[selection.schema] ?? [])].sort() : [];
+
+  const run = async () => {
+    if (!selection.catalog) return;
+    setBusy(true); setMessage("");
+    try {
+      const result = await api.post<{ run_id: number }>("/api/v1/databricks/install/run", {
+        catalog: selection.catalog,
+        schema_name: selection.schema || null,
+        table: selection.table || null,
+      });
+      setMessage(`Quality check started (Databricks run ${result.run_id}). Refresh results when it finishes.`);
+    } catch (err) {
+      setMessage(err instanceof ApiError || err instanceof Error ? err.message : "Could not start quality check");
+    } finally { setBusy(false); }
+  };
+
+  const selectClass = "rounded-lg border border-white/10 bg-[#111] px-3 py-2 text-xs text-white disabled:opacity-40";
+  return (
+    <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div><p className="text-sm font-medium text-white">Check a Unity Catalog dataset</p><p className="text-xs text-white/40">Includes managed, external, and federated MySQL catalogs visible to this app.</p></div>
+        <button onClick={() => void load(true)} className="text-xs text-blue-400 hover:text-blue-300">Refresh catalogs</button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select aria-label="Quality catalog" value={selection.catalog} onChange={(e) => onChange({ catalog: e.target.value, schema: "", table: "" })} className={selectClass}>
+          <option value="">Catalog / container…</option>{catalogs.map((v) => <option key={v}>{v}</option>)}
+        </select>
+        <select aria-label="Quality schema" value={selection.schema} disabled={!selection.catalog} onChange={(e) => onChange({ ...selection, schema: e.target.value, table: "" })} className={selectClass}>
+          <option value="">All schemas…</option>{schemas.map((v) => <option key={v}>{v}</option>)}
+        </select>
+        <select aria-label="Quality table" value={selection.table} disabled={!selection.schema} onChange={(e) => onChange({ ...selection, table: e.target.value })} className={selectClass}>
+          <option value="">All tables…</option>{tables.map((v) => <option key={v}>{v}</option>)}
+        </select>
+        <button onClick={() => void run()} disabled={!selection.catalog || busy} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-40">{busy ? "Starting…" : "Run quality check"}</button>
+        <button onClick={onDone} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/60 hover:bg-white/5">Refresh results</button>
+        {message && <span role="status" className="text-xs text-white/50">{message}</span>}
+      </div>
+    </div>
+  );
+}
+
 type Scope = "all" | "files" | "tables";
 const SCOPE_STORAGE_KEY = "dataone.dq.scope";
 const SCOPES: { key: Scope; label: string }[] = [
@@ -145,6 +227,7 @@ export function DataQualitySection({ widget }: { widget: UseWidgetDataResult<DQS
   // The dashboard averages every dataset, which blurs a single uploaded file. The switch narrows the view to
   // uploaded files or warehouse tables; "all" keeps using the page's own summary request.
   const [scope, setScope] = useState<Scope>("all");
+  const [catalogSelection, setCatalogSelection] = useState<CatalogSelection>({ catalog: "", schema: "", table: "" });
   const [scoped, setScoped] = useState<DQSummary | null>(null);
   const [scopedLoading, setScopedLoading] = useState(false);
   useEffect(() => {
@@ -171,6 +254,8 @@ export function DataQualitySection({ widget }: { widget: UseWidgetDataResult<DQS
   const view = scope === "all" ? data : scoped;
   const latest = view?.latest ?? null;
   const counts = data?.scope_counts;
+  const selectedPrefix = [catalogSelection.catalog, catalogSelection.schema, catalogSelection.table].filter(Boolean).join(".");
+  const visibleTables = selectedPrefix ? (view?.tables ?? []).filter((t) => t.table_name === selectedPrefix || t.table_name.startsWith(`${selectedPrefix}.`)) : (view?.tables ?? []);
 
   let body: React.ReactNode;
   if ((isLoading && !data) || (scope !== "all" && scopedLoading && !scoped)) {
@@ -219,7 +304,10 @@ export function DataQualitySection({ widget }: { widget: UseWidgetDataResult<DQS
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5 text-white/80">
-              {view!.tables.map((t) => (
+              {visibleTables.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-white/40">No quality result for this selection yet. Run the check, then refresh results.</td></tr>
+              )}
+              {visibleTables.map((t) => (
                 <tr key={t.table_name} className="hover:bg-white/5">
                   <td className="px-4 py-3 max-w-xs">
                     <div className="text-[#3b82f6] font-medium truncate" title={t.table_name}>{t.table_name}</div>
@@ -259,6 +347,7 @@ export function DataQualitySection({ widget }: { widget: UseWidgetDataResult<DQS
         </div>
       </div>
       <p className="text-white/50 text-sm mb-6">Completeness, uniqueness, validity and freshness of your Databricks datasets and uploaded files (csv, json, parquet, …), Scores are 0-100; "—" means not measured. Lowest-scoring datasets first.</p>
+      <CatalogQualityControls selection={catalogSelection} onChange={setCatalogSelection} onDone={refetch} />
       {body}
     </section>
   );

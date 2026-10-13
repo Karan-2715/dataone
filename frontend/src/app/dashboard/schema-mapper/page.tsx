@@ -28,6 +28,21 @@ const Icon = ({ name, size = 16, className = "", style }: { name: string; size?:
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Col { id: number; column_name: string; data_type: string; is_primary_key: boolean; }
 interface Tbl { id: number; table_name: string; columns: Col[]; }
+interface Connection { id: number; name: string; type: string; config?: Record<string, unknown>; }
+
+const tableTree = (tables: Tbl[], connection?: Connection) => {
+  const tree: Record<string, Record<string, string[]>> = {};
+  tables.forEach((t) => {
+    const p = t.table_name.split(".");
+    const [cat, sch, tbl] = connection?.type?.toLowerCase() === "databricks"
+      ? (p.length >= 3 ? [p[0], p[1], p.slice(2).join(".")] : p.length === 2 ? ["default", p[0], p[1]] : ["default", "default", t.table_name])
+      : [connection?.name || "source", String(connection?.config?.database ?? connection?.config?.dbname ?? "default"), t.table_name];
+    tree[cat] ??= {};
+    tree[cat][sch] ??= [];
+    tree[cat][sch].push(tbl);
+  });
+  return tree;
+};
 
 // ─── TypePill ────────────────────────────────────────────────────────────────
 const TypePill = ({ type }: { type?: string }) => {
@@ -43,7 +58,7 @@ const TypePill = ({ type }: { type?: string }) => {
 // ─── Styled Select ───────────────────────────────────────────────────────────
 const Field = ({ label, value, onChange, disabled, options, placeholder }: {
   label: string; value: string; onChange: (v: string) => void;
-  disabled?: boolean; options: string[]; placeholder: string;
+  disabled?: boolean; options: Array<string | { value: string; label: string }>; placeholder: string;
 }) => (
   <div>
     <label className="block text-[10px] font-semibold uppercase tracking-[0.12em] mb-2" style={{ color: "rgba(255,255,255,0.3)" }}>{label}</label>
@@ -57,7 +72,10 @@ const Field = ({ label, value, onChange, disabled, options, placeholder }: {
           opacity: disabled ? 0.35 : 1,
         }}>
         <option value="">{placeholder}</option>
-        {options.map(o => <option key={o} value={o} style={{ background: "#111" }}>{o}</option>)}
+        {options.map(o => {
+          const item = typeof o === "string" ? { value: o, label: o } : o;
+          return <option key={item.value} value={item.value} style={{ background: "#111" }}>{item.label}</option>;
+        })}
       </select>
       <span className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "rgba(255,255,255,0.25)" }}>
         <Icon name="chevron-d" size={12} />
@@ -123,8 +141,12 @@ export default function SchemaMapperPage() {
   const router = useRouter();
   const connId = searchParams.get("connection_id");
 
-  const [sparkConnId, setSparkConnId] = useState<number | null>(null);
-  const [tables, setTables] = useState<Tbl[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [sourceConnId, setSourceConnId] = useState<number | null>(null);
+  const [targetConnId, setTargetConnId] = useState<number | null>(null);
+  const [sourceTables, setSourceTables] = useState<Tbl[]>([]);
+  const [targetTables, setTargetTables] = useState<Tbl[]>([]);
+  const [schemaError, setSchemaError] = useState("");
   const [srcCat, setSrcCat] = useState(""); const [srcSch, setSrcSch] = useState(""); const [srcTbl, setSrcTbl] = useState("");
   const [tgtCat, setTgtCat] = useState(""); const [tgtSch, setTgtSch] = useState("");
   const [mode, setMode] = useState<"cfg" | "run">("cfg");
@@ -186,52 +208,61 @@ export default function SchemaMapperPage() {
   };
 
   useEffect(() => {
-    if (connId) { setSparkConnId(+connId); return; }
-    api.get<any[]>("/api/v1/connectors/").then(res => {
-      const list = Array.isArray(res) ? res : (res as any).connectors ?? [];
-      const db = list.find((c: any) => c.type?.toLowerCase() === "databricks");
-      if (db) setSparkConnId(db.id);
-    });
+    api.get<Connection[]>("/api/v1/connectors/").then(res => {
+      const list = Array.isArray(res) ? res : [];
+      setConnections(list);
+      const requested = connId ? list.find((c) => c.id === Number(connId)) : undefined;
+      const databricks = list.find((c) => c.type?.toLowerCase() === "databricks");
+      const source = requested ?? list.find((c) => c.type?.toLowerCase() !== "databricks") ?? databricks;
+      setSourceConnId(source?.id ?? null);
+      setTargetConnId(databricks?.id ?? source?.id ?? null);
+    }).catch((err) => setSchemaError(err instanceof Error ? err.message : "Could not load connections"));
   }, [connId]);
 
-  useEffect(() => {
-    if (!sparkConnId) return;
-    api.get<{ schema: Record<string, any[]> }>(`/api/v1/connectors/${sparkConnId}/schema`).then(res => {
+  const loadSchema = async (id: number, target: "source" | "target", refresh = false) => {
+    setSchemaError("");
+    try {
+      const res = await api.get<{ schema: Record<string, any[]> }>(`/api/v1/connectors/${id}/schema${refresh ? "?refresh=true" : ""}`);
       let uid = 1;
-      setTables(Object.entries(res.schema ?? {}).map(([name, cols]) => ({
+      const loaded = Object.entries(res.schema ?? {}).map(([name, cols]) => ({
         id: uid++, table_name: name,
         columns: (cols || []).map(c => ({ id: uid++, column_name: c.name, data_type: c.type ?? "", is_primary_key: c.primary_key ?? false })),
-      })));
-    });
-  }, [sparkConnId]);
+      }));
+      if (target === "source") setSourceTables(loaded);
+      else setTargetTables(loaded);
+    } catch (err) {
+      setSchemaError(err instanceof Error ? err.message : "Could not load dataset metadata");
+      if (target === "source") setSourceTables([]);
+      else setTargetTables([]);
+    }
+  };
 
-  const struct = useMemo(() => {
-    const s: Record<string, Record<string, string[]>> = {};
-    tables.forEach(t => {
-      const p = t.table_name.split(".");
-      const [cat, sch, tbl] = p.length >= 3 ? [p[0], p[1], p.slice(2).join(".")] : p.length === 2 ? ["default", p[0], p[1]] : ["default", "default", t.table_name];
-      if (!s[cat]) s[cat] = {};
-      if (!s[cat][sch]) s[cat][sch] = [];
-      s[cat][sch].push(tbl);
-    });
-    return s;
-  }, [tables]);
+  useEffect(() => { if (sourceConnId) void loadSchema(sourceConnId, "source"); }, [sourceConnId]);
+  useEffect(() => { if (targetConnId) void loadSchema(targetConnId, "target"); }, [targetConnId]);
 
-  const cats = Object.keys(struct).sort();
-  const srcSchs = srcCat ? Object.keys(struct[srcCat] || {}).sort() : [];
-  const srcTbls = srcSch ? (struct[srcCat]?.[srcSch] || []).sort() : [];
-  const tgtSchs = tgtCat ? Object.keys(struct[tgtCat] || {}).sort() : [];
-  const tgtTbls = useMemo(() => tgtCat && tgtSch ? tables.filter(t => {
+  const sourceConnection = connections.find((c) => c.id === sourceConnId);
+  const targetConnection = connections.find((c) => c.id === targetConnId);
+  const sourceStruct = useMemo(() => tableTree(sourceTables, sourceConnection), [sourceTables, sourceConnection]);
+  const targetStruct = useMemo(() => tableTree(targetTables, targetConnection), [targetTables, targetConnection]);
+  const srcCats = Object.keys(sourceStruct).sort();
+  const tgtCats = Object.keys(targetStruct).sort();
+  const srcSchs = srcCat ? Object.keys(sourceStruct[srcCat] || {}).sort() : [];
+  const srcTbls = srcSch ? (sourceStruct[srcCat]?.[srcSch] || []).sort() : [];
+  const tgtSchs = tgtCat ? Object.keys(targetStruct[tgtCat] || {}).sort() : [];
+  const tgtTbls = useMemo(() => tgtCat && tgtSch ? targetTables.filter(t => {
     const p = t.table_name.split(".");
-    const [c, s] = p.length >= 3 ? [p[0], p[1]] : p.length === 2 ? ["default", p[0]] : ["default", "default"];
+    const [c, s] = targetConnection?.type?.toLowerCase() === "databricks"
+      ? (p.length >= 3 ? [p[0], p[1]] : p.length === 2 ? ["default", p[0]] : ["default", "default"])
+      : [targetConnection?.name || "source", String(targetConnection?.config?.database ?? targetConnection?.config?.dbname ?? "default")];
     return c === tgtCat && s === tgtSch;
-  }) : [], [tables, tgtCat, tgtSch]);
-  const srcObj = useMemo(() => tables.find(t => {
+  }) : [], [targetTables, targetConnection, tgtCat, tgtSch]);
+  const srcObj = useMemo(() => sourceTables.find(t => {
+    if (sourceConnection?.type?.toLowerCase() !== "databricks") return t.table_name === srcTbl;
     const p = t.table_name.split(".");
     const [c, s, tb] = p.length >= 3 ? [p[0], p[1], p.slice(2).join(".")] : p.length === 2 ? ["default", p[0], p[1]] : ["default", "default", t.table_name];
     return c === srcCat && s === srcSch && tb === srcTbl;
-  }), [tables, srcCat, srcSch, srcTbl]);
-  const ready = !!srcTbl && !!tgtSch && !!sparkConnId;
+  }), [sourceTables, sourceConnection, srcCat, srcSch, srcTbl]);
+  const ready = !!srcTbl && !!tgtSch && !!sourceConnId && !!targetConnId;
 
   const run = async () => {
     if (!ready || !srcObj) return;
@@ -239,7 +270,7 @@ export default function SchemaMapperPage() {
     const fullSrc = srcObj.table_name;
     const fullTgt = `${tgtCat}.${tgtSch}`;
     try {
-      const m = await api.post<any>("/api/v1/mappings/", { name: `Map ${fullSrc} \u2192 ${fullTgt}`, source_id: sparkConnId, target_id: sparkConnId });
+      const m = await api.post<any>("/api/v1/mappings/", { name: `Map ${fullSrc} \u2192 ${fullTgt}`, source_id: sourceConnId, target_id: targetConnId });
       setMappingId(m.id);
       await api.post(`/api/v1/mappings/${m.id}/suggestions`, {});
       const poll = setInterval(async () => {
@@ -253,7 +284,10 @@ export default function SchemaMapperPage() {
         }
       }, 4000);
       setTimeout(() => { clearInterval(poll); setLoading(false); }, 180000);
-    } catch { setLoading(false); }
+    } catch (err) {
+      setSchemaError(err instanceof Error ? err.message : "Could not create schema mapping");
+      setLoading(false);
+    }
   };
 
   const reset = () => { 
@@ -375,7 +409,9 @@ export default function SchemaMapperPage() {
             <div className="flex gap-3 h-[450px] flex-shrink-0">
               {/* SOURCE */}
               <Panel label="Source" sub="From · read" icon="db">
-                <Field label="Catalog" value={srcCat} onChange={v => { setSrcCat(v); setSrcSch(""); setSrcTbl(""); }} options={cats} placeholder="Select catalog" />
+                <Field label="Connection" value={sourceConnId?.toString() ?? ""} onChange={v => { setSourceConnId(v ? Number(v) : null); setSrcCat(""); setSrcSch(""); setSrcTbl(""); }} options={connections.map(c => ({ value: c.id.toString(), label: `${c.name} (${c.type})` }))} placeholder="Select connection" />
+                <div className="-mt-3 text-[10px] text-white/35">{sourceConnection ? `${sourceConnection.name} · ${sourceConnection.type}` : "Choose MySQL or another source"}</div>
+                <Field label="Catalog / container" value={srcCat} onChange={v => { setSrcCat(v); setSrcSch(""); setSrcTbl(""); }} options={srcCats} placeholder="Select catalog" />
                 <Field label="Schema" value={srcSch} onChange={v => { setSrcSch(v); setSrcTbl(""); }} disabled={!srcCat} options={srcSchs} placeholder="Select schema" />
                 <Field label="Table" value={srcTbl} onChange={setSrcTbl} disabled={!srcSch} options={srcTbls} placeholder="Select table" />
                 {srcObj ? (
@@ -408,7 +444,14 @@ export default function SchemaMapperPage() {
 
               {/* TARGET */}
               <Panel label="Target" sub="To · write" icon="table">
-                <Field label="Catalog" value={tgtCat} onChange={v => { setTgtCat(v); setTgtSch(""); }} options={cats} placeholder="Select catalog" />
+                <Field label="Connection" value={targetConnId?.toString() ?? ""} onChange={v => { setTargetConnId(v ? Number(v) : null); setTgtCat(""); setTgtSch(""); }} options={connections.map(c => ({ value: c.id.toString(), label: `${c.name} (${c.type})` }))} placeholder="Select connection" />
+                <div className="-mt-3 flex items-center justify-between gap-2 text-[10px] text-white/35">
+                  <span>{targetConnection ? `${targetConnection.name} · ${targetConnection.type}` : "Choose target"}</span>
+                  {targetConnection?.type?.toLowerCase() === "databricks" && targetConnId && (
+                    <button onClick={() => void loadSchema(targetConnId, "target", true)} className="text-blue-400 hover:text-blue-300">Refresh Unity Catalog</button>
+                  )}
+                </div>
+                <Field label="Catalog / container" value={tgtCat} onChange={v => { setTgtCat(v); setTgtSch(""); }} options={tgtCats} placeholder="Select catalog" />
                 <Field label="Schema" value={tgtSch} onChange={setTgtSch} disabled={!tgtCat} options={tgtSchs} placeholder="Select schema" />
                 {tgtTbls.length > 0 ? (
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -426,6 +469,8 @@ export default function SchemaMapperPage() {
                 )}
               </Panel>
             </div>
+
+            {schemaError && <div role="alert" className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs text-red-300">{schemaError}</div>}
 
             {/* HISTORY SECTION */}
             <div className="mt-4 flex-shrink-0">

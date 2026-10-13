@@ -88,6 +88,7 @@ export default function GenieChatView({
   // ── Catalog / schema / table scope ──
   const [tableNames, setTableNames] = useState<string[]>([]); // "catalog.schema.table" from the Databricks connection
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
   const [scope, setScope] = useState<Scope>(NO_SCOPE);
   const scopeSpaces = useRef<Record<string, string>>({}); // scope key -> Genie agent id
 
@@ -124,15 +125,22 @@ export default function GenieChatView({
   }, []);
 
   // Catalogs / schemas / tables of the selected connection
-  useEffect(() => {
+  const loadCatalogs = useCallback(async (refresh = false) => {
     if (connectionId == null) return;
-    let cancelled = false;
-    setTableNames([]); setScope(NO_SCOPE); setSchemaError(null);
-    api.get<{ schema: Record<string, unknown> }>(`/api/v1/connectors/${connectionId}/schema`)
-      .then((res) => { if (!cancelled) setTableNames(Object.keys(res.schema ?? {})); })
-      .catch((err) => { if (!cancelled) setSchemaError(`Could not load catalogs: ${describe(err)}`); });
-    return () => { cancelled = true; };
+    setSchemaLoading(true); setSchemaError(null);
+    try {
+      const res = await api.get<{ schema: Record<string, unknown> }>(`/api/v1/connectors/${connectionId}/schema${refresh ? "?refresh=true" : ""}`);
+      if (!mounted.current) return;
+      setTableNames(Object.keys(res.schema ?? {}));
+      setScope(NO_SCOPE);
+    } catch (err) {
+      if (mounted.current) setSchemaError(`Could not load catalogs: ${describe(err)}`);
+    } finally {
+      if (mounted.current) setSchemaLoading(false);
+    }
   }, [connectionId]);
+
+  useEffect(() => { setTableNames([]); void loadCatalogs(); }, [loadCatalogs]);
 
   const tree = useMemo(() => {
     const t: Record<string, Record<string, string[]>> = {};
@@ -254,6 +262,11 @@ export default function GenieChatView({
             <option value="">All tables in schema…</option>
             {tables.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <button onClick={() => void loadCatalogs(true)} disabled={phase !== null || schemaLoading || connectionId == null}
+            title="Refresh managed, external, and federated Unity Catalog datasets"
+            className="rounded-lg px-2 py-1.5 text-[12px] text-fg-subtle hover:bg-surface hover:text-fg disabled:opacity-30">
+            {schemaLoading ? "Refreshing…" : "Refresh catalogs"}
+          </button>
         </div>
         {scope.catalog && (
           <button onClick={() => changeScope(NO_SCOPE)} disabled={phase !== null}

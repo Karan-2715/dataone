@@ -47,6 +47,7 @@ export default function TransformationPage() {
   const [input, setInput] = useState("");
   const [loadingCode, setLoadingCode] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewLimit, setPreviewLimit] = useState(300);
   const [transformationCode, setTransformationCode] = useState<string>("");
 
   // Real data from backend
@@ -63,7 +64,7 @@ export default function TransformationPage() {
     if (!mappingId) return;
     setLoadingPreview(true);
     try {
-      const res = await api.get<any>(`/api/v1/transformation/preview/${mappingId}?limit=300`);
+      const res = await api.get<any>(`/api/v1/transformation/preview/${mappingId}?limit=${previewLimit}`);
       setCols(res.cols || []);
       setCleanRows(res.clean_rows || []);
       setUncleanRows(res.unclean_rows || []);
@@ -79,7 +80,7 @@ export default function TransformationPage() {
     } finally {
       setLoadingPreview(false);
     }
-  }, [mappingId]);
+  }, [mappingId, previewLimit]);
 
   useEffect(() => { fetchPreview(); }, [fetchPreview]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loadingCode]);
@@ -271,11 +272,21 @@ export default function TransformationPage() {
                 <Icon name="alert" size={12} /> Anomalies ({displayUnclean.length})
               </button>
             </div>
-            {patches.length > 0 && (
-              <button onClick={() => setPatches([])} className="text-[10px] px-2 py-1 rounded text-white/30 hover:text-red-400 transition-colors">
-                Clear pending edits
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-[10px] text-white/40">
+                Preview rows
+                <select aria-label="Preview row limit" value={previewLimit} onChange={(e) => setPreviewLimit(Number(e.target.value))}
+                  className="rounded border border-white/10 bg-[#111] px-2 py-1 text-white/70">
+                  {[100, 300, 500, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <span className="text-[10px] text-white/30">Preview only; migration processes the full dataset.</span>
+              {patches.length > 0 && (
+                <button onClick={() => setPatches([])} className="text-[10px] px-2 py-1 rounded text-white/30 hover:text-red-400 transition-colors">
+                  Clear pending edits
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-hidden flex flex-col min-h-0">
