@@ -15,7 +15,7 @@ import logging
 import re
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.governance import CLASSIFICATION_LABELS, COMPLIANCE_STATUSES, GovernanceMetadata
 from app.models.connection import DBConnection
@@ -107,6 +107,7 @@ class GovernanceService:
         assets: dict[str, list[str]] = {}
         catalog_tables = (
             self.db.query(CatalogTable)
+            .options(selectinload(CatalogTable.columns))
             .filter(CatalogTable.connection_id == connection_id)
             .order_by(CatalogTable.table_name)
             .all()
@@ -133,10 +134,37 @@ class GovernanceService:
                 assets[table_name] = column_names
         return dict(sorted(assets.items()))
 
+    def _metadata_index(
+        self, connection_ids: list[int],
+    ) -> dict[tuple[int, str | None, str | None], GovernanceMetadata]:
+        if not connection_ids:
+            return {}
+        rows = (
+            self.db.query(GovernanceMetadata)
+            .filter(GovernanceMetadata.connection_id.in_(connection_ids))
+            .all()
+        )
+        return {
+            (row.connection_id, row.table_name, row.column_name): row
+            for row in rows
+        }
+
+    @staticmethod
+    def _effective_from_index(
+        index: dict[tuple[int, str | None, str | None], GovernanceMetadata],
+        connection_id: int,
+        table_name: str,
+    ) -> GovernanceMetadata | None:
+        return (
+            index.get((connection_id, table_name, None))
+            or index.get((connection_id, None, None))
+        )
+
     def list_assets(self, connection_id: int) -> list[dict[str, Any]]:
         assets = []
+        metadata = self._metadata_index([connection_id])
         for table_name, column_names in self._asset_index(connection_id).items():
-            effective = self.get_effective(connection_id, table_name)
+            effective = self._effective_from_index(metadata, connection_id, table_name)
             saved_classification = effective.classification if effective else None
             classification = "Classified" if saved_classification == "PII" else saved_classification
             assets.append({
@@ -196,6 +224,7 @@ class GovernanceService:
         if connection_id is not None:
             connection_query = connection_query.filter(DBConnection.id == connection_id)
         connections = connection_query.all()
+        metadata = self._metadata_index([connection.id for connection in connections])
         tables = [
             (connection.id, table_name)
             for connection in connections
@@ -207,7 +236,7 @@ class GovernanceService:
 
         has_owner = has_classification = has_retention = 0
         for asset_connection_id, table_name in tables:
-            effective = self.get_effective(asset_connection_id, table_name)
+            effective = self._effective_from_index(metadata, asset_connection_id, table_name)
             if effective and effective.owner:
                 has_owner += 1
             # Every discovered asset receives an automatic classification;
