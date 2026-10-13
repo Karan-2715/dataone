@@ -160,15 +160,16 @@ function CatalogQualityControls({ selection, onChange, onDone }: {
   const tables = selection.catalog && selection.schema ? [...(tree[selection.catalog]?.[selection.schema] ?? [])].sort() : [];
 
   const run = async () => {
-    if (!selection.catalog) return;
+    if (!selection.catalog || !selection.schema || !selection.table) return;
     setBusy(true); setMessage("");
     try {
-      const result = await api.post<{ run_id: number }>("/api/v1/databricks/install/run", {
+      const result = await api.post<{ run_id: string; overall_score: number | null }>("/api/v1/data-quality/catalog/run", {
         catalog: selection.catalog,
-        schema_name: selection.schema || null,
-        table: selection.table || null,
+        schema_name: selection.schema,
+        table: selection.table,
       });
-      setMessage(`Quality check started (Databricks run ${result.run_id}). Refresh results when it finishes.`);
+      setMessage(`Quality check complete${result.overall_score === null ? "" : ` — score ${result.overall_score.toFixed(1)}%`}.`);
+      onDone();
     } catch (err) {
       setMessage(err instanceof ApiError || err instanceof Error ? err.message : "Could not start quality check");
     } finally { setBusy(false); }
@@ -191,7 +192,7 @@ function CatalogQualityControls({ selection, onChange, onDone }: {
         <select aria-label="Quality table" value={selection.table} disabled={!selection.schema} onChange={(e) => onChange({ ...selection, table: e.target.value })} className={selectClass}>
           <option value="">All tables…</option>{tables.map((v) => <option key={v}>{v}</option>)}
         </select>
-        <button onClick={() => void run()} disabled={!selection.catalog || busy} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-40">{busy ? "Starting…" : "Run quality check"}</button>
+        <button onClick={() => void run()} disabled={!selection.catalog || !selection.schema || !selection.table || busy} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-40">{busy ? "Checking…" : "Run quality check"}</button>
         <button onClick={onDone} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/60 hover:bg-white/5">Refresh results</button>
         {message && <span role="status" className="text-xs text-white/50">{message}</span>}
       </div>

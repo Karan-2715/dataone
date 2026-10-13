@@ -40,6 +40,12 @@ class DQRunIn(BaseModel):
     tables: List[DQTableIn] = Field(min_length=1, max_length=500)
 
 
+class DQCatalogRunIn(BaseModel):
+    catalog: str = Field(min_length=1, max_length=255)
+    schema_name: str = Field(min_length=1, max_length=255)
+    table: str = Field(min_length=1, max_length=255)
+
+
 class DQIngestResult(BaseModel):
     run_id: str
     table_count: int

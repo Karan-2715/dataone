@@ -1,7 +1,11 @@
 """Tests for the Databricks data-quality ingest + summary APIs."""
 import pytest
 
+from app.api.routers import data_quality as data_quality_router
 from app.core.config import settings
+from app.models.connection import DBConnection
+from app.schemas.data_quality import DQRunIn
+from app.services import catalog_quality_service
 
 KEY = "test-ingest-key"
 
@@ -102,6 +106,82 @@ class TestSummary:
 
     def test_requires_login(self, make_client):
         assert make_client(None).get("/api/v1/data-quality/summary").status_code == 401
+
+
+class TestCatalogQualityRun:
+    def test_profiles_selected_table_and_immediately_updates_summary(self, client, db, admin, monkeypatch):
+        db.add(DBConnection(
+            name="Databricks", type="databricks", owner_email=admin.email,
+            config={"server_hostname": "example", "http_path": "/sql/warehouse", "access_token": "x"},
+        ))
+        db.commit()
+        run = DQRunIn.model_validate(_payload(
+            run_id="catalog-quality:test",
+            source="databricks-manual:test",
+            catalog="dataone_mysql_dataone_source_ba4f108677",
+            schema_name="dataone_source",
+            tables=[{
+                "table_name": "dataone_mysql_dataone_source_ba4f108677.dataone_source.customer_orders",
+                "row_count": 10, "column_count": 2, "completeness": 90,
+                "uniqueness": 90, "validity": 88.9, "freshness": None,
+            }],
+        ))
+        monkeypatch.setattr(data_quality_router, "profile_catalog_table", lambda *_args: run)
+
+        response = client.post("/api/v1/data-quality/catalog/run", json={
+            "catalog": "dataone_mysql_dataone_source_ba4f108677",
+            "schema_name": "dataone_source",
+            "table": "customer_orders",
+        })
+
+        assert response.status_code == 200
+        assert response.json()["run_id"] == "catalog-quality:test"
+        summary = client.get("/api/v1/data-quality/summary?table_limit=100").json()
+        assert summary["tables"][0]["table_name"] == run.tables[0].table_name
+        assert summary["tables"][0]["overall_score"] == 89.6
+
+    def test_requires_a_databricks_connection(self, client):
+        response = client.post("/api/v1/data-quality/catalog/run", json={
+            "catalog": "catalog", "schema_name": "schema", "table": "table",
+        })
+        assert response.status_code == 409
+        assert "Databricks connection" in response.json()["detail"]
+
+    def test_direct_profiler_computes_selected_table_scores(self, monkeypatch):
+        connection = DBConnection(
+            name="Databricks", type="databricks",
+            config={"server_hostname": "example", "http_path": "/sql/warehouse", "access_token": "x"},
+        )
+
+        class FakeConnector:
+            closed = False
+
+            def execute_query(self, query):
+                if "SELECT DISTINCT" in query:
+                    return [{"distinct_rows": 9}]
+                return [{"__rows": 10, "p0": 8, "p1": 10,
+                         "vn0": 8, "vp0": 7, "vn1": 10, "vp1": 9}]
+
+            def close(self):
+                self.closed = True
+
+        fake = FakeConnector()
+        monkeypatch.setattr(catalog_quality_service.SchemaService, "get_full_schema", lambda _connection: {
+            "cat.sch.orders": [
+                {"name": "email", "type": "varchar(180)"},
+                {"name": "order_amount", "type": "decimal(12,2)"},
+            ],
+        })
+        monkeypatch.setattr(catalog_quality_service, "get_connector", lambda _connection: fake)
+
+        run = catalog_quality_service.profile_catalog_table(connection, "cat", "sch", "orders")
+        table = run.tables[0]
+        assert table.table_name == "cat.sch.orders"
+        assert table.completeness == 90.0
+        assert table.uniqueness == 90.0
+        assert table.validity == 88.9
+        assert {issue.check for issue in table.issues} == {"completeness", "uniqueness", "valid_email", "non_negative"}
+        assert fake.closed is True
 
 
 class TestUploadRuns:

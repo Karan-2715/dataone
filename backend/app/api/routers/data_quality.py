@@ -19,9 +19,11 @@ from app.api.deps import require_role
 from app.api.routers.auth import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.connection import DBConnection
 from app.models.user import User
-from app.schemas.data_quality import DQIngestResult, DQRunIn, DQSummary
+from app.schemas.data_quality import DQCatalogRunIn, DQIngestResult, DQRunIn, DQSummary
 from app.services.audit_helper import emit_audit_event
+from app.services.catalog_quality_service import CatalogQualityError, profile_catalog_table
 from app.services.data_quality_ingest_service import DataQualityIngestService
 from app.services import file_quality_service
 from app.services.file_quality_service import FileQualityError
@@ -62,6 +64,41 @@ def get_data_quality_summary(
     return DataQualityIngestService(db).get_summary(
         table_limit=table_limit, ingest_configured=bool(settings.DQ_INGEST_KEY), scope=scope,
     )
+
+
+@router.post("/catalog/run", response_model=DQIngestResult)
+def run_catalog_quality_check(
+    payload: DQCatalogRunIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(file_check_roles),
+):
+    """Profile one selected Unity Catalog table and persist its result immediately."""
+    query = db.query(DBConnection).filter(
+        DBConnection.type == "databricks",
+        DBConnection.is_deleted == False,  # noqa: E712
+    )
+    if user.role != "admin":
+        query = query.filter(DBConnection.owner_email == user.email)
+    connection = query.order_by(DBConnection.id).first()
+    if connection is None:
+        raise HTTPException(status_code=409, detail="Add a Databricks connection before running a quality check")
+    try:
+        run = profile_catalog_table(connection, payload.catalog, payload.schema_name, payload.table)
+    except CatalogQualityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("[data_quality] stage=catalog_run table=%s.%s.%s failed: %s",
+                     payload.catalog, payload.schema_name, payload.table, exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Could not profile the selected table: {exc}") from exc
+
+    result = DataQualityIngestService(db).ingest(run)
+    emit_audit_event(
+        db, "data_quality_catalog_run", actor=user.email, module="data_quality",
+        target_type="table", target_name=f"{payload.catalog}.{payload.schema_name}.{payload.table}",
+        target_id=result.run_id, summary=f"overall score {result.overall_score}",
+    )
+    db.commit()
+    return result
 
 
 # ── Databricks file data-quality pipeline (databricks/file_quality bundle) ──────────────────────────────
