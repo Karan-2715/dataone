@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from app.models.schema_catalog import CatalogTable
+from app.models.schema_snapshot import SchemaSnapshot
 
 
 class TestUpsertAndFetch:
@@ -79,6 +80,41 @@ class TestEffectiveFallback:
         assert GovernanceService(db).get_effective(connection.id, "orders", "amount") is None
 
 
+class TestGovernanceAssets:
+    def test_snapshot_only_federated_tables_are_listed_and_classified(self, client, db, connection):
+        db.add(SchemaSnapshot(connection_id=connection.id, schema_json={
+            "workspace.default.sample": [{"name": "value", "type": "string"}],
+            "dataone_mysql_dataone_source_ba4f108677.dataone_source.customers": [
+                {"name": "customer_id", "type": "bigint"},
+                {"name": "email", "type": "string"},
+            ],
+        }))
+        db.commit()
+
+        response = client.get(f"/api/v1/governance/{connection.id}/assets")
+        assert response.status_code == 200
+        assets = {row["table_name"]: row for row in response.json()}
+        mysql_asset = assets["dataone_mysql_dataone_source_ba4f108677.dataone_source.customers"]
+        assert mysql_asset["classification"] == "Sensitive"
+        assert mysql_asset["classification_source"] == "automatic"
+
+    def test_manual_classification_overrides_automatic_value(self, client, db, connection):
+        db.add(SchemaSnapshot(connection_id=connection.id, schema_json={
+            "dataone_mysql_dataone_source_ba4f108677.dataone_source.orders": [
+                {"name": "amount", "type": "decimal"},
+            ],
+        }))
+        db.commit()
+        client.put(f"/api/v1/governance/{connection.id}", json={
+            "table_name": "dataone_mysql_dataone_source_ba4f108677.dataone_source.orders",
+            "classification": "Public",
+        })
+
+        asset = client.get(f"/api/v1/governance/{connection.id}/assets").json()[0]
+        assert asset["classification"] == "Public"
+        assert asset["classification_source"] == "manual"
+
+
 class TestGovernanceScore:
     def test_empty_catalog_is_honest_zero_not_fake(self, client):
         data = client.get("/api/v1/governance/score").json()
@@ -103,9 +139,9 @@ class TestGovernanceScore:
         data = client.get("/api/v1/governance/score").json()
         assert data["table_count"] == 2
         assert data["owner_coverage"] == 50
-        assert data["classification_coverage"] == 50
+        assert data["classification_coverage"] == 100
         assert data["retention_coverage"] == 50
-        assert data["score"] == 50
+        assert data["score"] == 67
 
     def test_connection_level_record_covers_every_table(self, client, db, connection):
         db.add_all([
@@ -137,4 +173,4 @@ class TestGovernanceScore:
         global_score = client.get("/api/v1/governance/score").json()
         assert scoped["score"] == 100
         assert scoped["table_count"] == 1
-        assert global_score["score"] == 50
+        assert global_score["score"] == 67

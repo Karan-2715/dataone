@@ -5,14 +5,18 @@ import GovernanceCenterPage from "../page";
 const { getMock, putMock } = vi.hoisted(() => ({ getMock: vi.fn(), putMock: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: { get: getMock, put: putMock } }));
 
-function mockRoutes({ records = [] as unknown[] } = {}) {
+const defaultAssets = [
+  { table_name: "users", owner: null, steward: null, classification: "Sensitive", classification_source: "automatic", retention_policy: null, compliance_status: "not_assessed" },
+  { table_name: "orders", owner: null, steward: null, classification: "Confidential", classification_source: "automatic", retention_policy: null, compliance_status: "not_assessed" },
+];
+
+function mockRoutes({ assets = defaultAssets as unknown[] } = {}) {
   getMock.mockImplementation((path: string) => {
     if (path.includes("/governance/score")) {
       return Promise.resolve({ score: 66, table_count: 2, owner_coverage: 50, classification_coverage: 100, retention_coverage: 50 });
     }
     if (path.includes("/connectors/")) return Promise.resolve([{ id: 1, name: "Prod DB" }]);
-    if (path.includes("/catalog/")) return Promise.resolve({ tables: [{ table_name: "users" }, { table_name: "orders" }] });
-    if (path.includes("/governance/1")) return Promise.resolve(records);
+    if (path.includes("/governance/1/assets")) return Promise.resolve(assets);
     return Promise.resolve(null);
   });
 }
@@ -45,16 +49,15 @@ describe("GovernanceCenterPage", () => {
 
   it("shows existing governance values from the backend record", async () => {
     mockRoutes({
-      records: [{
-        id: 1, table_name: "users", column_name: null, owner: "Data Team", steward: "Jane",
-        classification: "PII", retention_policy: "3 years", compliance_status: "compliant",
-        updated_by: "admin@test.local", updated_at: "2026-07-17T00:00:00Z",
+      assets: [{
+        table_name: "users", owner: "Data Team", steward: "Jane",
+        classification: "Classified", classification_source: "manual", retention_policy: "3 years", compliance_status: "compliant",
       }],
     });
     render(<GovernanceCenterPage />);
     fireEvent.change(await screen.findByRole("combobox", { name: "Connection" }), { target: { value: "1" } });
     await waitFor(() => expect(screen.getByText("Data Team")).toBeInTheDocument());
-    expect(screen.getByText("PII")).toBeInTheDocument();
+    expect(screen.getByText("Classified")).toBeInTheDocument();
     expect(screen.getByText("compliant")).toBeInTheDocument();
   });
 

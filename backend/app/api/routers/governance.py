@@ -13,6 +13,7 @@ from app.api.deps import require_role
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.governance import (
+    GovernanceAssetResponse,
     GovernanceMetadataResponse,
     GovernanceMetadataUpsert,
     GovernanceScore,
@@ -39,6 +40,15 @@ def list_governance_metadata(
     user: User = Depends(require_role("admin", "analyst")),
 ):
     return GovernanceService(db).list_for_connection(connection_id)
+
+
+@router.get("/{connection_id}/assets", response_model=list[GovernanceAssetResponse])
+def list_governance_assets(
+    connection_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin", "analyst")),
+):
+    return GovernanceService(db).list_assets(connection_id)
 
 
 @router.put("/{connection_id}", response_model=GovernanceMetadataResponse)

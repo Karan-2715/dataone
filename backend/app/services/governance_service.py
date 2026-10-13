@@ -12,6 +12,7 @@ gated on tenant isolation and legal sign-off respectively.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -19,8 +20,47 @@ from sqlalchemy.orm import Session
 from app.models.governance import CLASSIFICATION_LABELS, COMPLIANCE_STATUSES, GovernanceMetadata
 from app.models.connection import DBConnection
 from app.models.schema_catalog import CatalogTable
+from app.models.schema_snapshot import SchemaSnapshot
 
 logger = logging.getLogger(__name__)
+
+_CLASSIFIED_MARKERS = {
+    "ssn", "social_security", "national_id", "passport", "tax_id",
+    "credit_card", "card_number", "cvv", "password", "passwd", "secret",
+    "api_key", "access_token",
+}
+_SENSITIVE_MARKERS = {
+    "email", "phone", "telephone", "mobile", "dob", "date_of_birth",
+    "birth_date", "address", "full_name", "first_name", "last_name",
+    "ip_address",
+}
+_CONFIDENTIAL_MARKERS = {
+    "salary", "wage", "revenue", "profit", "cost", "price", "amount",
+    "balance", "account", "order", "transaction", "invoice", "customer",
+    "employee", "internal",
+}
+
+
+def _metadata_terms(values: list[str]) -> set[str]:
+    terms: set[str] = set()
+    for value in values:
+        normalized = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+        terms.add(normalized)
+        terms.update(part for part in normalized.split("_") if part)
+    return terms
+
+
+def classify_dataset(table_name: str, column_names: list[str]) -> str:
+    """Assign a conservative dataset label from names only, never row data."""
+    terms = _metadata_terms([table_name, *column_names])
+    for label, markers in (
+        ("Classified", _CLASSIFIED_MARKERS),
+        ("Sensitive", _SENSITIVE_MARKERS),
+        ("Confidential", _CONFIDENTIAL_MARKERS),
+    ):
+        if any(marker in terms for marker in markers):
+            return label
+    return "Public"
 
 
 class GovernanceService:
@@ -61,6 +101,54 @@ class GovernanceService:
                      GovernanceMetadata.table_name, GovernanceMetadata.column_name)
             .all()
         )
+
+    def _asset_index(self, connection_id: int) -> dict[str, list[str]]:
+        """Merge the normalized catalog with the complete cached schema."""
+        assets: dict[str, list[str]] = {}
+        catalog_tables = (
+            self.db.query(CatalogTable)
+            .filter(CatalogTable.connection_id == connection_id)
+            .order_by(CatalogTable.table_name)
+            .all()
+        )
+        for table in catalog_tables:
+            assets[table.table_name] = [column.column_name for column in table.columns]
+
+        snapshot = (
+            self.db.query(SchemaSnapshot)
+            .filter(SchemaSnapshot.connection_id == connection_id)
+            .first()
+        )
+        for table_name, columns in ((snapshot.schema_json or {}) if snapshot else {}).items():
+            if table_name.endswith(".(empty_schema)"):
+                continue
+            column_names = []
+            if isinstance(columns, list):
+                for column in columns:
+                    if isinstance(column, dict):
+                        name = column.get("name") or column.get("column_name")
+                        if name:
+                            column_names.append(str(name))
+            if table_name not in assets or not assets[table_name]:
+                assets[table_name] = column_names
+        return dict(sorted(assets.items()))
+
+    def list_assets(self, connection_id: int) -> list[dict[str, Any]]:
+        assets = []
+        for table_name, column_names in self._asset_index(connection_id).items():
+            effective = self.get_effective(connection_id, table_name)
+            saved_classification = effective.classification if effective else None
+            classification = "Classified" if saved_classification == "PII" else saved_classification
+            assets.append({
+                "table_name": table_name,
+                "owner": effective.owner if effective else None,
+                "steward": effective.steward if effective else None,
+                "classification": classification or classify_dataset(table_name, column_names),
+                "classification_source": "manual" if saved_classification else "automatic",
+                "retention_policy": effective.retention_policy if effective else None,
+                "compliance_status": effective.compliance_status if effective else "not_assessed",
+            })
+        return assets
 
     def upsert(
         self, connection_id: int, table: str | None, column: str | None,
@@ -104,28 +192,28 @@ class GovernanceService:
         connection-level fallback) — averaged equally. Never a canned
         number; an empty catalog returns 0 with an honest explanation,
         matching the Migration Readiness / DQ Score precedent."""
-        query = (
-            self.db.query(CatalogTable)
-            .join(DBConnection, DBConnection.id == CatalogTable.connection_id)
-            .filter(DBConnection.is_deleted.is_(False))
-        )
+        connection_query = self.db.query(DBConnection).filter(DBConnection.is_deleted.is_(False))
         if connection_id is not None:
-            query = query.filter(CatalogTable.connection_id == connection_id)
-        tables = query.all()
+            connection_query = connection_query.filter(DBConnection.id == connection_id)
+        connections = connection_query.all()
+        tables = [
+            (connection.id, table_name)
+            for connection in connections
+            for table_name in self._asset_index(connection.id)
+        ]
         if not tables:
             return {"score": 0, "table_count": 0, "owner_coverage": 0,
                     "classification_coverage": 0, "retention_coverage": 0}
 
         has_owner = has_classification = has_retention = 0
-        for table in tables:
-            effective = self.get_effective(table.connection_id, table.table_name)
-            if effective is None:
-                continue
-            if effective.owner:
+        for asset_connection_id, table_name in tables:
+            effective = self.get_effective(asset_connection_id, table_name)
+            if effective and effective.owner:
                 has_owner += 1
-            if effective.classification:
-                has_classification += 1
-            if effective.retention_policy:
+            # Every discovered asset receives an automatic classification;
+            # a saved manual value takes precedence in list_assets().
+            has_classification += 1
+            if effective and effective.retention_policy:
                 has_retention += 1
 
         total = len(tables)

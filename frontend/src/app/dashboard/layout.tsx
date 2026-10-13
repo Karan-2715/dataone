@@ -33,7 +33,6 @@ const Icon = ({ path, className = "w-4 h-4" }: { path: string; className?: strin
 const NAV_ITEMS: NavItem[] = [
   { id: "connectors", label: "Connectors", icon: <Icon path="M13 10V3L4 14h7v7l9-11h-7z" />, href: "/dashboard/connectors" },
   { id: "dashboard", label: "Dashboard", icon: <Icon path="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10" />, href: "/dashboard" },
-  { id: "autopilot", label: "Agentic DBA Copilot", icon: <Icon path="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2 M8 7a4 4 0 100-8 4 4 0 000 8z M20 8v6 M23 11h-6" />, href: "/dashboard/autopilot" },
   { id: "schema-mapper", label: "Schema Mapper", icon: <Icon path="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />, href: "/dashboard/schema-mapper" },
   { id: "governance", label: "Autopilot Governance", icon: <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />, href: "/dashboard/governance" },
   { id: "askdata", label: "AskData (NL2SQL)", icon: <Icon path="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />, href: "/dashboard/query-workspace" },

@@ -23,7 +23,9 @@ from app.core.database import Base
 # uses (PII/Sensitive/Public), plus Confidential for governance-only
 # assets that aren't a PII signal. A managed multi-value taxonomy admin
 # (E08-3) is deferred; this is a validated fixed set, not free text.
-CLASSIFICATION_LABELS = ("PII", "Sensitive", "Confidential", "Public")
+# ``PII`` remains accepted for records created by older releases. New UI
+# choices use the four dataset-level labels requested by Governance Center.
+CLASSIFICATION_LABELS = ("PII", "Classified", "Sensitive", "Confidential", "Public")
 COMPLIANCE_STATUSES = ("not_assessed", "under_review", "compliant", "non_compliant")
 
 

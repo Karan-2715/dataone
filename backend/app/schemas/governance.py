@@ -38,3 +38,13 @@ class GovernanceScore(BaseModel):
     owner_coverage: int
     classification_coverage: int
     retention_coverage: int
+
+
+class GovernanceAssetResponse(BaseModel):
+    table_name: str
+    owner: str | None
+    steward: str | None
+    classification: str
+    classification_source: str
+    retention_policy: str | None
+    compliance_status: str

@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { Badge, EmptyState, ErrorState, Gauge, LoadingState, WorkspaceHeader } from "../components";
 import { useWidgetData } from "../hooks/useWidgetData";
 
-const CLASSIFICATION_LABELS = ["PII", "Sensitive", "Confidential", "Public"] as const;
+const CLASSIFICATION_LABELS = ["Classified", "Sensitive", "Confidential", "Public"] as const;
 const COMPLIANCE_STATUSES = ["not_assessed", "under_review", "compliant", "non_compliant"] as const;
 
 interface ConnectorRef {
@@ -13,21 +13,14 @@ interface ConnectorRef {
   name: string;
 }
 
-interface CatalogTable {
+interface GovernanceAsset {
   table_name: string;
-}
-
-interface GovernanceRecord {
-  id: number;
-  table_name: string | null;
-  column_name: string | null;
   owner: string | null;
   steward: string | null;
-  classification: string | null;
+  classification: string;
+  classification_source: "automatic" | "manual";
   retention_policy: string | null;
   compliance_status: string;
-  updated_by: string;
-  updated_at: string;
 }
 
 interface GovernanceScore {
@@ -68,26 +61,16 @@ export default function GovernanceCenterPage() {
     [],
   );
 
-  const { data: catalog } = useWidgetData<{ tables: CatalogTable[] } | null>(
-    (signal) => {
-      if (connectionId == null) return Promise.resolve(null);
-      return api.get<{ tables: CatalogTable[] }>(`/api/v1/catalog/${connectionId}/tables`, { signal });
-    },
-    [connectionId],
-  );
-
-  const { data: records, isLoading, isError, errorMessage } = useWidgetData<GovernanceRecord[]>(
+  const { data: assets, isLoading, isError, errorMessage } = useWidgetData<GovernanceAsset[]>(
     (signal) => {
       if (connectionId == null) return Promise.resolve([]);
-      return api.get<GovernanceRecord[]>(`/api/v1/governance/${connectionId}`, { signal });
+      return api.get<GovernanceAsset[]>(`/api/v1/governance/${connectionId}/assets`, { signal });
     },
     [connectionId, refreshKey],
   );
 
-  const recordByTable = new Map((records ?? []).filter((r) => r.column_name == null).map((r) => [r.table_name, r]));
-
   const startEdit = (tableName: string) => {
-    const existing = recordByTable.get(tableName);
+    const existing = (assets ?? []).find((asset) => asset.table_name === tableName);
     setForm({
       owner: existing?.owner ?? "",
       steward: existing?.steward ?? "",
@@ -163,7 +146,7 @@ export default function GovernanceCenterPage() {
             <LoadingState label="Loading governance metadata…" />
           ) : isError ? (
             <ErrorState message={errorMessage} />
-          ) : (catalog?.tables ?? []).length === 0 ? (
+          ) : (assets ?? []).length === 0 ? (
             <EmptyState title="No cataloged tables" description="Scan this connection from Schema Intel first." />
           ) : (
             <div className="overflow-x-auto"><table className="w-full min-w-[52rem] text-xs">
@@ -179,18 +162,20 @@ export default function GovernanceCenterPage() {
                 </tr>
               </thead>
               <tbody>
-                {(catalog?.tables ?? []).map((t) => {
-                  const record = recordByTable.get(t.table_name);
+                {(assets ?? []).map((asset) => {
                   return (
-                    <tr key={t.table_name} className="border-t border-border/60">
-                      <td className="py-2 font-mono text-fg-muted">{t.table_name}</td>
-                      <td className="text-fg-muted">{record?.owner ?? "—"}</td>
-                      <td className="text-fg-muted">{record?.steward ?? "—"}</td>
-                      <td>{record?.classification ? <Badge variant="info" size="sm">{record.classification}</Badge> : "—"}</td>
-                      <td className="text-fg-muted">{record?.retention_policy ?? "—"}</td>
-                      <td><Badge variant={complianceVariant(record?.compliance_status ?? "not_assessed")} size="sm">{(record?.compliance_status ?? "not_assessed").replace("_", " ")}</Badge></td>
+                    <tr key={asset.table_name} className="border-t border-border/60">
+                      <td className="py-2 font-mono text-fg-muted">{asset.table_name}</td>
+                      <td className="text-fg-muted">{asset.owner ?? "—"}</td>
+                      <td className="text-fg-muted">{asset.steward ?? "—"}</td>
                       <td>
-                        <button type="button" onClick={() => startEdit(t.table_name)} className="rounded-lg px-2 py-1 text-[10px] font-semibold text-accent hover:bg-accent-soft">
+                        <Badge variant="info" size="sm">{asset.classification}</Badge>
+                        <span className="ml-1.5 text-[9px] uppercase tracking-wide text-fg-subtle">{asset.classification_source}</span>
+                      </td>
+                      <td className="text-fg-muted">{asset.retention_policy ?? "—"}</td>
+                      <td><Badge variant={complianceVariant(asset.compliance_status)} size="sm">{asset.compliance_status.replace("_", " ")}</Badge></td>
+                      <td>
+                        <button type="button" onClick={() => startEdit(asset.table_name)} className="rounded-lg px-2 py-1 text-[10px] font-semibold text-accent hover:bg-accent-soft">
                           Edit
                         </button>
                       </td>
