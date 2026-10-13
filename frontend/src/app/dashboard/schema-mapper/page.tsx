@@ -213,7 +213,9 @@ export default function SchemaMapperPage() {
       setConnections(list);
       const requested = connId ? list.find((c) => c.id === Number(connId)) : undefined;
       const databricks = list.find((c) => c.type?.toLowerCase() === "databricks");
-      const source = requested ?? list.find((c) => c.type?.toLowerCase() !== "databricks") ?? databricks;
+      // MySQL datasets are published into Unity Catalog, so prefer the
+      // Databricks connection unless the page explicitly requests another one.
+      const source = requested ?? databricks ?? list[0];
       setSourceConnId(source?.id ?? null);
       setTargetConnId(databricks?.id ?? source?.id ?? null);
     }).catch((err) => setSchemaError(err instanceof Error ? err.message : "Could not load connections"));
