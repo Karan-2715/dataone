@@ -21,6 +21,21 @@ databricks_port = int(
 
 is_databricks = bool(os.getenv("DATABRICKS_APP_PORT"))
 
+if is_databricks:
+    required_settings = (
+        "APP_DATABASE_URL",
+        "SECRET_KEY",
+        "ADMIN_DEFAULT_PASSWORD",
+    )
+    missing_settings = [
+        name for name in required_settings if not os.getenv(name)
+    ]
+    if missing_settings:
+        raise RuntimeError(
+            "Missing required Databricks App settings: "
+            + ", ".join(missing_settings)
+        )
+
 # Single app URL — frontend and backend are served from the same Databricks App
 BACKEND_APP_URL = os.getenv("DATABRICKS_APP_URL") or "https://dataonetest-7474652115156015.aws.databricksapps.com"
 
@@ -36,10 +51,7 @@ else:
     frontend_login_url = f"http://localhost:{databricks_port}/signin"
 
 # ── Environment variables ─────────────────────────────────────────────────────
-os.environ["APP_DATABASE_URL"] = "postgresql://dataone:<DB_PASSWORD>@ep-mute-moon-d8ql2bc9.database.us-east-2.cloud.databricks.com/databricks_postgres?sslmode=require"
 os.environ["LOG_LEVEL"]      = "INFO"
-os.environ["SECRET_KEY"]     = "<SET-A-LONG-RANDOM-SECRET>"
-os.environ["ADMIN_DEFAULT_PASSWORD"] = "<SET-ADMIN-PASSWORD>"
 os.environ["BACKEND_URL"]          = backend_url
 os.environ["FRONTEND_URL"]         = frontend_url
 os.environ["FRONTEND_LOGIN_URL"]   = frontend_login_url

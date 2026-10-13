@@ -1,5 +1,13 @@
 command: ["python", "start.py"]
 env:
+  # Existing DataOne application state database.
+  - name: APP_DATABASE_URL
+    valueFrom: database-url
+  # JWT signing key and bootstrap-admin password are stored in Databricks Secrets.
+  - name: SECRET_KEY
+    valueFrom: secret-key
+  - name: ADMIN_DEFAULT_PASSWORD
+    valueFrom: admin-default-password
   # Shared key for the Databricks data-quality job -> POST /api/v1/data-quality/ingest
   - name: DQ_INGEST_KEY
     valueFrom: dq-ingest-key
