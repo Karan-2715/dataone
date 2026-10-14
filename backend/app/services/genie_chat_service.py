@@ -197,21 +197,50 @@ def ensure_data_space(catalog: str, schema: str, table: Optional[str] = None) ->
         if not names:
             raise GenieChatError(f"{catalog}.{schema} has no tables the app can read.")
 
+    source_identifiers = [f"{catalog}.{schema}.{name}" for name in names]
+    quality_results = settings.DQ_FILES_RESULTS_TABLE.strip()
+    quality_parts = quality_results.split(".")
+    if len(quality_parts) != 3 or any(not _UC_NAME_RE.match(part) for part in quality_parts):
+        raise GenieChatError("DQ_FILES_RESULTS_TABLE must be a valid catalog.schema.table name.")
+    if quality_results not in source_identifiers:
+        try:
+            wc.tables.get(quality_results)
+            source_identifiers.append(quality_results)
+        except Exception as exc:
+            logger.warning(
+                "[genie_chat] quality results table is not available to the app: table=%s error=%s",
+                quality_results,
+                exc,
+            )
+
     scope = f"{catalog}.{schema}" + (f".{table}" if table else "")
     title = f"{DATA_SPACE_PREFIX}{scope}"
+    serialized_space = json.dumps({
+        "version": 2,
+        "data_sources": {"tables": [{"identifier": identifier} for identifier in source_identifiers]},
+    })
     for existing in list_spaces():
         if existing["title"] == title:
+            _api(wc, "PATCH", f"/api/2.0/genie/spaces/{existing['space_id']}", body={
+                "title": title,
+                "description": (
+                    f"Natural-language SQL over {scope}, plus measured DataOne quality results when available. "
+                    "Quality scores must come from the quality-results table; never estimate missing metrics."
+                ),
+                "warehouse_id": _warehouse_id(wc),
+                "serialized_space": serialized_space,
+            })
             return {"space_id": existing["space_id"], "title": title, "created": False, "tables": names}
 
     logger.info("[genie_chat] stage=create_data_space scope=%s tables=%d", scope, len(names))
     created = _api(wc, "POST", "/api/2.0/genie/spaces", body={
         "title": title,
-        "description": f"Natural-language questions over {scope}. Created by DataOne.",
+        "description": (
+            f"Natural-language SQL over {scope}, plus measured DataOne quality results when available. "
+            "Quality scores must come from the quality-results table; never estimate missing metrics."
+        ),
         "warehouse_id": _warehouse_id(wc),
-        "serialized_space": json.dumps({
-            "version": 2,
-            "data_sources": {"tables": [{"identifier": f"{catalog}.{schema}.{n}"} for n in names]},
-        }),
+        "serialized_space": serialized_space,
     })
     space_id = created.get("space_id") or created.get("id")
     if not space_id:

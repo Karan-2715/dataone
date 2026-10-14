@@ -22,6 +22,29 @@ Independent of the `dataone-secure` bundle (`dataone-orchestrator`, `dataone-qua
 
 ## Deploy
 
+### Marketplace / cloned-repository setup notebook
+
+After cloning the full repository into a Databricks Git folder, open and run
+`marketplace/DataOne_Setup.py`. The notebook automatically creates or updates:
+
+* `workspace.dataone_dq` and its `uploads` managed volume;
+* an existing accessible serverless SQL warehouse, or a small `DataOne SQL Warehouse` if none exists;
+* `dataone-file-quality-pipeline` and the on-demand `dataone-file-quality-job`;
+* the `DataOne NL2SQL and Data Quality` Genie space over measured quality results.
+
+It runs the job once to materialize `workspace.dataone_dq.file_quality_results`, then prints the job, pipeline,
+warehouse, and Genie IDs. In **+ New App**, attach the printed job (`CAN_MANAGE_RUN`), Genie space (`CAN_RUN`),
+warehouse (`CAN_USE`), upload volume (`READ_VOLUME`, `WRITE_VOLUME`), and results table (`SELECT`). These grants
+must happen after app creation because the app service principal does not exist before then.
+Use resource key `genie-space` for the Genie space and `sql-warehouse` for the warehouse; `app.yml` maps those
+resources to the backend environment variables.
+
+The notebook does not ask for a source catalog/schema/table. Users select those dynamically in DataOne; NL2SQL
+agents then include the selected Unity Catalog data plus the measured quality-results table. The default job is
+on-demand (`UTC`); add a schedule in Databricks only when the workspace owner chooses an SLA and budget.
+
+### Databricks Asset Bundle
+
 ```bash
 databricks bundle validate --profile <profile>
 databricks bundle deploy   --profile <profile>

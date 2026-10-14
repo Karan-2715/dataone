@@ -180,7 +180,7 @@ class _FakeUC:
 
 class _SpaceApi:
     def __init__(self, existing=()):
-        self.existing, self.created = list(existing), []
+        self.existing, self.created, self.updated = list(existing), [], []
 
     def do(self, method, path, query=None, body=None):
         if method == "GET" and path == "/api/2.0/genie/spaces":
@@ -188,6 +188,9 @@ class _SpaceApi:
         if method == "POST" and path == "/api/2.0/genie/spaces":
             self.created.append(body)
             return {"space_id": "newspace0001"}
+        if method == "PATCH" and path.startswith("/api/2.0/genie/spaces/"):
+            self.updated.append(body)
+            return {}
         raise AssertionError(f"unexpected {method} {path}")
 
 
@@ -212,7 +215,10 @@ class TestDataSpace:
         assert body["warehouse_id"] == "wh1" and body["title"] == out["title"]
         import json as _json
         assert _json.loads(body["serialized_space"]) == {
-            "version": 2, "data_sources": {"tables": [{"identifier": "workspace.default.titanic"}]}}
+            "version": 2, "data_sources": {"tables": [
+                {"identifier": "workspace.default.titanic"},
+                {"identifier": "workspace.dataone_dq.file_quality_results"},
+            ]}}
 
     def test_schema_scope_attaches_all_its_tables_sorted(self, uc):
         api = _SpaceApi()
@@ -220,7 +226,11 @@ class TestDataSpace:
         out = gc.ensure_data_space("workspace", "default")
         import json as _json
         tables = _json.loads(api.created[0]["serialized_space"])["data_sources"]["tables"]
-        assert [t["identifier"] for t in tables] == ["workspace.default.company_stocks", "workspace.default.titanic"]
+        assert [t["identifier"] for t in tables] == [
+            "workspace.default.company_stocks",
+            "workspace.default.titanic",
+            "workspace.dataone_dq.file_quality_results",
+        ]
         assert out["title"] == "DataOne data: workspace.default"
 
     def test_reuses_an_existing_agent_instead_of_creating_another(self, uc):
@@ -228,6 +238,15 @@ class TestDataSpace:
         uc(api)
         out = gc.ensure_data_space("workspace", "default", "titanic")
         assert out["space_id"] == "old" and out["created"] is False and api.created == []
+        assert len(api.updated) == 1
+
+    def test_missing_quality_results_keeps_source_agent_usable(self, uc):
+        api = _SpaceApi()
+        uc(api, _FakeUC(missing=["file_quality_results"]))
+        gc.ensure_data_space("workspace", "default", "titanic")
+        import json as _json
+        tables = _json.loads(api.created[0]["serialized_space"])["data_sources"]["tables"]
+        assert tables == [{"identifier": "workspace.default.titanic"}]
 
     def test_unreadable_table_is_a_clear_error(self, uc):
         uc(_SpaceApi(), _FakeUC(missing=["titanic"]))
