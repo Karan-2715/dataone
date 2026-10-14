@@ -1,16 +1,18 @@
 command: ["python", "start.py"]
 env:
-  # Existing DataOne application state database.
+  # Optional setup-notebook resources. The app still opens in setup mode when
+  # these are not attached, then reports the exact missing resource through the API.
+  # Kept for existing installations; new Marketplace installs should attach Lakebase.
   - name: APP_DATABASE_URL
     valueFrom: database-url
-  # JWT signing key and bootstrap-admin password are stored in Databricks Secrets.
-  - name: SECRET_KEY
-    valueFrom: secret-key
-  - name: ADMIN_DEFAULT_PASSWORD
-    valueFrom: admin-default-password
-  # Shared key for the Databricks data-quality job -> POST /api/v1/data-quality/ingest
-  - name: DQ_INGEST_KEY
-    valueFrom: dq-ingest-key
+  - name: DATABRICKS_SQL_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: DQ_FILES_JOB_ID
+    valueFrom: dq-job
+  - name: DQ_FILES_VOLUME_PATH
+    valueFrom: dq-volume
+  - name: DQ_FILES_RESULTS_TABLE
+    valueFrom: dq-results-table
   # Genie agent that answers natural-language questions (Query Workspace -> Ask Genie)
   - name: DATABRICKS_GENIE_SPACE_ID
     valueFrom: genie-space

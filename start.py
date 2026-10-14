@@ -11,6 +11,12 @@ import os
 import sys
 import subprocess
 
+repo_root = os.path.dirname(os.path.abspath(__file__))
+backend_path = os.path.join(repo_root, "backend")
+sys.path.insert(0, backend_path)
+
+from app.core.runtime_config import configure_databricks_runtime_environment
+
 # ── Ports & URLs ──────────────────────────────────────────────────────────────
 databricks_port = int(
     os.getenv("DATABRICKS_APP_PORT") or
@@ -20,21 +26,7 @@ databricks_port = int(
 )
 
 is_databricks = bool(os.getenv("DATABRICKS_APP_PORT"))
-
-if is_databricks:
-    required_settings = (
-        "APP_DATABASE_URL",
-        "SECRET_KEY",
-        "ADMIN_DEFAULT_PASSWORD",
-    )
-    missing_settings = [
-        name for name in required_settings if not os.getenv(name)
-    ]
-    if missing_settings:
-        raise RuntimeError(
-            "Missing required Databricks App settings: "
-            + ", ".join(missing_settings)
-        )
+configure_databricks_runtime_environment()
 
 # Single app URL — frontend and backend are served from the same Databricks App
 BACKEND_APP_URL = os.getenv("DATABRICKS_APP_URL") or "https://dataonetest-7474652115156015.aws.databricksapps.com"
@@ -55,7 +47,9 @@ os.environ["LOG_LEVEL"]      = "INFO"
 os.environ["BACKEND_URL"]          = backend_url
 os.environ["FRONTEND_URL"]         = frontend_url
 os.environ["FRONTEND_LOGIN_URL"]   = frontend_login_url
-os.environ["DATABRICKS_NATIVE_MODE"] = "true"
+os.environ["DATABRICKS_NATIVE_MODE"] = "true" if is_databricks else os.getenv(
+    "DATABRICKS_NATIVE_MODE", "false"
+)
 os.environ["ENABLE_UNITY_CATALOG"]   = "true"
 os.environ["ENABLE_EXTERNAL_CONNECTORS"] = "true"
 os.environ["DATABRICKS_USE_LLM"]  = "false"
@@ -87,7 +81,6 @@ if is_databricks:
 # The frontend is built with NEXT_PUBLIC_API_URL="" so all fetch() calls use
 # relative URLs (/api/v1/...) — they resolve to the same Databricks App origin,
 # so the proxy sees same-origin requests and injects X-Forwarded-* headers.
-repo_root    = os.getcwd()
 frontend_dir = os.path.join(repo_root, "frontend")
 frontend_out = os.path.join(frontend_dir, "out")
 
@@ -128,9 +121,7 @@ print(f"   Frontend out:  {frontend_out}")
 print(f"   Frontend built: {os.path.isfile(os.path.join(frontend_out, 'index.html'))}")
 print()
 
-backend_path = os.path.join(repo_root, "backend")
-sys.path.insert(0, backend_path)
-os.chdir("backend")
+os.chdir(backend_path)
 
 print(f"🚀 Starting FastAPI on port {databricks_port}...")
 

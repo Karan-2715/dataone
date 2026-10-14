@@ -63,6 +63,18 @@ def save_original_file(schema_name: str, table_name: str, filename: str, content
 
 def run_job() -> int:
     wc = _client()
+    if settings.DQ_FILES_JOB_ID:
+        try:
+            job_id = int(settings.DQ_FILES_JOB_ID)
+        except ValueError as exc:
+            raise FileQualityError("DQ_FILES_JOB_ID must be a numeric Databricks job ID.") from exc
+        logger.info("[file_quality] stage=run_job job_id=%s", job_id)
+        return wc.jobs.run_now(job_id=job_id).run_id
+    if settings.DATABRICKS_NATIVE_MODE:
+        raise FileQualityError(
+            "Data quality is not configured. Attach the DataOne quality job to this app "
+            "and expose it as DQ_FILES_JOB_ID."
+        )
     jobs = list(wc.jobs.list(name=settings.DQ_FILES_JOB_NAME))
     if not jobs:
         raise FileQualityError(
@@ -96,6 +108,11 @@ def _quote_table(full_name: str) -> str:
 def _run_sql(wc, statement: str) -> List[List[Optional[str]]]:
     warehouse_id = getattr(settings, "DATABRICKS_SQL_WAREHOUSE_ID", None)
     if not warehouse_id:
+        if settings.DATABRICKS_NATIVE_MODE:
+            raise FileQualityError(
+                "Data quality results cannot be read until a SQL warehouse is attached "
+                "to the app as DATABRICKS_SQL_WAREHOUSE_ID."
+            )
         warehouses = list(wc.warehouses.list())
         if not warehouses:
             raise FileQualityError("No Databricks SQL warehouse is available to read the file quality results.")

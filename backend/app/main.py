@@ -46,7 +46,7 @@ from app.api.routers import transformation as transformation_router
 from app.core.celery_app import celery_app  # noqa: F401  (registers tasks on import)
 from app.core.audit_guard import install_audit_append_only_guard
 from app.core.config import settings
-from app.core.database import Base, engine, SessionLocal
+from app.core.database import Base, engine, SessionLocal, database_runtime
 from app.models.connection import DBConnection  # ensure models loaded
 from app.models.audit import AuditLog  # noqa: F401
 from app.models.query_history import QueryHistory  # noqa: F401
@@ -252,17 +252,20 @@ async def lifespan(app: FastAPI):
         
     install_audit_append_only_guard(engine)
 
-    # 2. Seed default admin user
+    # 2. Seed an optional password-based administrator. Marketplace installs
+    # use Databricks SSO, so no shared default password is created.
     from app.services.auth_service import AuthService
     db = SessionLocal()
     try:
-        if not db.query(User).first():
+        if not db.query(User).first() and settings.ADMIN_DEFAULT_PASSWORD:
             db.add(User(
                 email="admin@dataplane.ai",
                 hashed_password=AuthService.hash_password(settings.ADMIN_DEFAULT_PASSWORD),
                 role="admin", is_active=True,
             ))
             db.commit()
+        elif not db.query(User).first():
+            logger.info("[startup] password admin bootstrap skipped; Databricks SSO is enabled")
     finally:
         db.close()
 
@@ -385,7 +388,7 @@ async def log_requests(request: Request, call_next):
     request_id = str(uuid.uuid4())[:8]
     start = time.monotonic()
     
-    # Log all request details for debugging CORS
+    # Never log forwarded headers: Databricks injects user access tokens there.
     origin = request.headers.get("origin")
     logger.info(
         f"[{request_id}] Incoming request: {request.method} {request.url.path}",
@@ -394,7 +397,6 @@ async def log_requests(request: Request, call_next):
             "method": request.method,
             "path": request.url.path,
             "origin": origin,
-            "headers": dict(request.headers),
         }
     )
     
@@ -495,7 +497,9 @@ def health_check():
             "service": "DataOne API",
             "version": "1.0.0",
             "checks": checks,
-            "mode": "databricks_app" if os.getenv("DATABRICKS_APP_PORT") else "standalone"
+            "mode": "databricks_app" if os.getenv("DATABRICKS_APP_PORT") else "standalone",
+            "database_mode": database_runtime.mode,
+            "persistent_state": database_runtime.persistent,
         },
     )
 

@@ -32,6 +32,6 @@ pyarrow>=14.0.0
 openpyxl>=3.1.2
 # Databricks integration
 databricks-sql-connector>=3.0.0
-databricks-sdk>=0.12.0
+databricks-sdk>=0.81.0
 databricks-connect>=14.3.0
 pgvector==0.2.1

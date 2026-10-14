@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     SCHEMA_DRIFT_INTERVAL_MINUTES: int = 60
     SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
-    ADMIN_DEFAULT_PASSWORD: str = "admin123"
+    # Optional local/bootstrap login. Databricks Apps use workspace SSO and do
+    # not create a password-based administrator unless this is explicitly set.
+    ADMIN_DEFAULT_PASSWORD: str | None = None
     # Dashboard aggregation cache (dashboard_tasks #2). TTL <= 0 disables caching.
     DASHBOARD_CACHE_TTL: int = 30
     DASHBOARD_CACHE_MAXSIZE: int = 256
@@ -79,6 +81,8 @@ class Settings(BaseSettings):
     DQ_FILES_VOLUME_PATH: str = "/Volumes/workspace/dataone_dq/uploads"
     DQ_FILES_RESULTS_TABLE: str = "workspace.dataone_dq.file_quality_results"
     DQ_FILES_JOB_NAME: str = "dataone-file-quality-job"
+    DQ_FILES_JOB_ID: str | None = None
+    DATABRICKS_SQL_WAREHOUSE_ID: str | None = None
 
     # Agentic DBA Copilot (agentic_dba_tasks #3) — sanity caps on plan size
     # (design decision #11) and an LLM-adaptation kill switch.
