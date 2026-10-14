@@ -285,19 +285,32 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    # 5. Auto-discover Databricks workspace (if running as Databricks App)
+    # 5. Auto-discover the Databricks workspace in the background. SQL
+    # warehouse startup/connectivity can take minutes and must not hold the
+    # ASGI lifespan open (which leaves the app returning 502 meanwhile).
+    import threading
+
     from app.services.databricks_autodiscovery import DatabricksAutoDiscoveryService
-    db = SessionLocal()
-    try:
-        DatabricksAutoDiscoveryService.setup_auto_discovery(db)
-    finally:
-        db.close()
+
+    def _auto_discover_workspace():
+        discovery_db = SessionLocal()
+        try:
+            DatabricksAutoDiscoveryService.setup_auto_discovery(discovery_db)
+        except Exception:
+            logger.exception("[startup] background Databricks auto-discovery failed")
+        finally:
+            discovery_db.close()
+
+    threading.Thread(
+        target=_auto_discover_workspace,
+        daemon=True,
+        name="databricks-auto-discovery",
+    ).start()
+    logger.info("[startup] Databricks auto-discovery thread started in background")
 
     # 6. Pre-warm SchemaSnapshots for all existing Databricks connections in the background.
     #    This ensures that the Schema Mapper is always instant after startup — no matter
     #    whether DATABRICKS_AUTO_DISCOVER is set or not.
-    import threading
-
     def _prewarm_snapshots():
         import hashlib
         import json as _json
