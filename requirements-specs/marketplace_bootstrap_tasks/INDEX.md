@@ -7,7 +7,7 @@ Status: `[ ]` pending · `[~]` in progress · `[x]` complete · `[!]` blocked ·
 | P0 | 01 — Remove manual-secret startup dependency | [x] | High: Databricks injects a unique app service-principal identity. |
 | P0 | 02 — Add Lakebase and explicit temporary setup storage | [x] | High: follows the Databricks Apps Lakebase credential flow. |
 | P1 | 03 — Bind data-quality resources by ID | [x] | High: app resources expose stable IDs and paths through `valueFrom`. |
-| P0 | 04 — Verify, publish, and exercise the deployed app | [~] | Medium: repository checks are local; deployment also depends on workspace state. |
+| P0 | 04 — Verify, publish, and exercise the deployed app | [x] | High: the published commit was deployed and the live ASGI startup completed. |
 
 Execution order: 01 → 02 → 03 → 04.
 
@@ -19,3 +19,4 @@ Execution order: 01 → 02 → 03 → 04.
 - 2026-10-14 — Task 03 complete: file quality uses attached job/warehouse IDs in native-app mode and fails with actionable configuration errors instead of selecting the first visible workspace resource. `app.yml` keys now match the public setup notebook instructions.
 - 2026-10-14 — Task 04 in progress: Python compilation, 9 focused tests, dependency resolution for Databricks Python 3.11, and the Next.js production build pass. Repository-wide frontend lint still reports the pre-existing 59 errors/27 warnings in unrelated UI files.
 - 2026-10-14 — First live deployment reached FastAPI initialization but remained behind a 502 while synchronous SQL-warehouse auto-discovery held the ASGI startup lifecycle open. Moved that network operation to a named background thread with explicit exception logging; catalog discovery can finish independently without blocking app availability.
+- 2026-10-14 — Task 04 complete: pushed the application and setup repositories, aligned the live `dataone122344` resource keys, removed its obsolete secret resources, and deployed the final startup fix. Databricks logs show `Application startup complete` and the app opens successfully. No Lakebase project exists in this Free Edition workspace, so this specific instance correctly reports `temporary_setup` storage; Marketplace workspaces should attach one database resource for durable app state.

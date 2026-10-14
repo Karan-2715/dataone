@@ -2,9 +2,6 @@ command: ["python", "start.py"]
 env:
   # Optional setup-notebook resources. The app still opens in setup mode when
   # these are not attached, then reports the exact missing resource through the API.
-  # Kept for existing installations; new Marketplace installs should attach Lakebase.
-  - name: APP_DATABASE_URL
-    valueFrom: database-url
   - name: DATABRICKS_SQL_WAREHOUSE_ID
     valueFrom: sql-warehouse
   - name: DQ_FILES_JOB_ID
