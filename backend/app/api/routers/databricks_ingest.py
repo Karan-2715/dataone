@@ -50,11 +50,8 @@ class GenieRequest(BaseModel):
 
 
 def _get_user_token(request: Request) -> Optional[str]:
-    """Extract bearer token from request for pass-through to Databricks."""
-    auth = request.headers.get("Authorization", "")
-    if auth.lower().startswith("bearer "):
-        return auth[7:]
-    return None
+    """Return the Databricks Apps on-behalf-of token for this user."""
+    return request.headers.get("x-forwarded-access-token")
 
 
 @router.post("/trigger", status_code=202)
@@ -155,8 +152,7 @@ def get_databricks_catalogs(
     """Fetch available Databricks Unity Catalog names."""
     try:
         from app.services.databricks_ingestion_service import _get_workspace_client
-        # M2M token fallback avoids OAuth scope issues
-        wc = _get_workspace_client(None)
+        wc = _get_workspace_client(_get_user_token(request))
         catalogs = []
         for cat in wc.catalogs.list():
             catalogs.append({"name": cat.name})
@@ -177,8 +173,7 @@ def get_databricks_schemas(
     """Fetch schemas within a Databricks catalog."""
     try:
         from app.services.databricks_ingestion_service import _get_workspace_client
-        # M2M token fallback avoids OAuth scope issues
-        wc = _get_workspace_client(None)
+        wc = _get_workspace_client(_get_user_token(request))
         schemas = []
         for schema in wc.schemas.list(catalog_name=catalog_name):
             schemas.append({"name": schema.name})
@@ -294,6 +289,7 @@ def _sql_literal(value: Optional[str]) -> str:
 @router.post("/upload-file")
 @router.post("/upload-csv")  # legacy alias kept for older clients
 async def upload_file(
+    request: Request,
     catalog: str = Form(...),
     schema_name: str = Form(default="default", alias="schema"),
     file: UploadFile = File(...),
@@ -332,7 +328,9 @@ async def upload_file(
         full_table_name = f"{_quote_ident(catalog)}.{_quote_ident(schema_name)}.{_quote_ident(table_name)}"
         logger.info("[databricks_ingest] stage=upload_file table=%s rows=%d actor=%s", full_table_name, len(rows), user.email)
 
-        wc = _get_workspace_client(None)
+        # Interactive uploads run with the signed-in user's Unity Catalog privileges.
+        # The app service principal remains reserved for shared/background resources.
+        wc = _get_workspace_client(_get_user_token(request))
         
         # We need the warehouse_id
         # We can get it from settings or just find a running warehouse
